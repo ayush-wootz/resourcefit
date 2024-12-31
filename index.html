@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Universal Content Embed</title>
+    <title>Content Embed</title>
     <style>
         html, body {
             margin: 0;
@@ -13,52 +13,46 @@
         }
 
         #container {
-            width: 100vw;
-            position: relative;
-            overflow: hidden;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            width: 100%;
             margin: 0;
             padding: 0;
+        }
+
+        #imageWrapper {
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #directImage {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
         }
 
         #webContainer {
             width: 100%;
-            height: 100vh;
-            position: relative;
+            margin: 0;
+            padding: 0;
             display: none;
+            overflow: hidden;
         }
 
         #embeddedLink {
-            width: 100%;
-            height: 100%;
+            width: 1200px;
             border: none;
-            position: absolute;
-            top: 0;
-            left: 0;
-        }
-
-        #imageContainer {
-            width: 100%;
-            display: none;
-            margin: 0;
-            padding: 0;
-            text-align: center;
-        }
-
-        #directImage {
-            max-width: 100vw;
-            width: 100%;
-            height: auto;
-            display: block;
-            margin: 0 auto;
+            min-height: 100vh;
+            transform-origin: 0 0;
         }
 
         #pdfViewer {
             width: 100%;
             height: 100vh;
             display: none;
+            border: none;
         }
 
         .error {
@@ -66,10 +60,6 @@
             text-align: center;
             font-family: system-ui, sans-serif;
             color: #333;
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 4px;
-            margin: 16px;
         }
     </style>
 </head>
@@ -78,7 +68,7 @@
         <div id="webContainer">
             <iframe id="embeddedLink" scrolling="yes" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
         </div>
-        <div id="imageContainer">
+        <div id="imageWrapper">
             <img id="directImage" alt="Embedded content">
         </div>
         <iframe id="pdfViewer"></iframe>
@@ -88,7 +78,7 @@
         const container = document.getElementById('container');
         const webContainer = document.getElementById('webContainer');
         const iframe = document.getElementById('embeddedLink');
-        const imageContainer = document.getElementById('imageContainer');
+        const imageWrapper = document.getElementById('imageWrapper');
         const directImage = document.getElementById('directImage');
         const pdfViewer = document.getElementById('pdfViewer');
 
@@ -104,24 +94,20 @@
 
         function hideAllElements() {
             webContainer.style.display = 'none';
-            imageContainer.style.display = 'none';
+            imageWrapper.style.display = 'none';
             pdfViewer.style.display = 'none';
+        }
+
+        function scaleWebContent() {
+            const containerWidth = webContainer.offsetWidth;
+            const scale = containerWidth / 1200;
+            iframe.style.transform = `scale(${scale})`;
         }
 
         function handleImage(url) {
             hideAllElements();
-            imageContainer.style.display = 'block';
+            imageWrapper.style.display = 'flex';
             directImage.src = url;
-            
-            directImage.onload = function() {
-                const imgWidth = directImage.naturalWidth;
-                const containerWidth = container.offsetWidth;
-                
-                if (imgWidth < containerWidth) {
-                    directImage.style.width = 'auto';
-                    directImage.style.maxWidth = '100%';
-                }
-            };
             
             directImage.onerror = function() {
                 handleFallback(url);
@@ -142,12 +128,15 @@
             hideAllElements();
             webContainer.style.display = 'block';
             iframe.src = url;
+            scaleWebContent();
+            window.addEventListener('resize', scaleWebContent);
         }
 
         function handleFallback(url) {
             hideAllElements();
             webContainer.style.display = 'block';
             iframe.src = url;
+            scaleWebContent();
         }
 
         function initializeEmbed() {
