@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Link Embed</title>
+    <title>Universal Content Embed</title>
     <style>
         html, body {
             margin: 0;
@@ -31,11 +31,21 @@
             display: none;
         }
 
+        #pdfViewer {
+            width: 100%;
+            height: 100vh;
+            display: none;
+        }
+
         .error {
             padding: 16px;
             text-align: center;
             font-family: system-ui, sans-serif;
             color: #333;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            margin: 16px;
         }
     </style>
 </head>
@@ -43,15 +53,23 @@
     <div id="container">
         <iframe id="embeddedLink" scrolling="yes"></iframe>
         <img id="directImage" alt="Embedded content">
+        <iframe id="pdfViewer"></iframe>
     </div>
 
     <script>
         const container = document.getElementById('container');
         const iframe = document.getElementById('embeddedLink');
         const directImage = document.getElementById('directImage');
+        const pdfViewer = document.getElementById('pdfViewer');
 
-        function isImageUrl(url) {
-            return url.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
+        function detectContentType(url) {
+            const extension = url.split('.').pop().toLowerCase();
+            const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'svg'];
+            const documentExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'];
+            
+            if (imageExtensions.includes(extension)) return 'image';
+            if (documentExtensions.includes(extension)) return 'document';
+            return 'webpage';
         }
 
         function adjustIframe() {
@@ -60,6 +78,46 @@
             iframe.style.transform = `scale(${scale})`;
             const heightAdjustment = Math.max(window.innerHeight / scale, window.innerHeight);
             iframe.style.height = heightAdjustment + 'px';
+        }
+
+        function hideAllElements() {
+            iframe.style.display = 'none';
+            directImage.style.display = 'none';
+            pdfViewer.style.display = 'none';
+        }
+
+        function handleImage(url) {
+            hideAllElements();
+            directImage.style.display = 'block';
+            directImage.src = url;
+            
+            directImage.onerror = function() {
+                handleFallback(url);
+            };
+        }
+
+        function handleDocument(url) {
+            hideAllElements();
+            pdfViewer.style.display = 'block';
+            pdfViewer.src = url;
+            
+            pdfViewer.onerror = function() {
+                handleFallback(url);
+            };
+        }
+
+        function handleWebpage(url) {
+            hideAllElements();
+            iframe.style.display = 'block';
+            iframe.src = url;
+            adjustIframe();
+        }
+
+        function handleFallback(url) {
+            hideAllElements();
+            iframe.style.display = 'block';
+            iframe.src = url;
+            adjustIframe();
         }
 
         function initializeEmbed() {
@@ -73,28 +131,19 @@
 
             try {
                 const url = new URL(link);
+                const contentType = detectContentType(url.toString());
                 
-                if (isImageUrl(url.toString())) {
-                    // Handle direct image links
-                    iframe.style.display = 'none';
-                    directImage.style.display = 'block';
-                    directImage.src = url.toString();
-                    
-                    directImage.onerror = function() {
-                        // Fallback to iframe if direct image loading fails
-                        directImage.style.display = 'none';
-                        iframe.style.display = 'block';
-                        iframe.src = url.toString();
-                        adjustIframe();
-                    };
-                } else {
-                    // Handle non-image URLs
-                    directImage.style.display = 'none';
-                    iframe.style.display = 'block';
-                    iframe.src = url.toString();
-                    adjustIframe();
+                switch(contentType) {
+                    case 'image':
+                        handleImage(url.toString());
+                        break;
+                    case 'document':
+                        handleDocument(url.toString());
+                        break;
+                    default:
+                        handleWebpage(url.toString());
                 }
-                
+
                 window.addEventListener('resize', adjustIframe);
                 iframe.onload = adjustIframe;
                 
