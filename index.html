@@ -13,28 +13,46 @@
         }
 
         #container {
-            width: 100%;
+            width: 100vw;
             position: relative;
             overflow: hidden;
             display: flex;
             justify-content: center;
-            align-items: flex-start;
+            align-items: center;
+            margin: 0;
+            padding: 0;
+        }
+
+        #webContainer {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+            display: none;
         }
 
         #embeddedLink {
+            width: 100%;
+            height: 100%;
+            border: none;
             position: absolute;
             top: 0;
             left: 0;
-            width: 1400px;
-            border: none;
-            transform-origin: 0 0;
+        }
+
+        #imageContainer {
+            width: 100%;
+            display: none;
+            margin: 0;
+            padding: 0;
+            text-align: center;
         }
 
         #directImage {
+            max-width: 100vw;
             width: 100%;
             height: auto;
-            display: none;
-            object-fit: contain;
+            display: block;
+            margin: 0 auto;
         }
 
         #pdfViewer {
@@ -57,14 +75,20 @@
 </head>
 <body>
     <div id="container">
-        <iframe id="embeddedLink" scrolling="yes"></iframe>
-        <img id="directImage" alt="Embedded content">
+        <div id="webContainer">
+            <iframe id="embeddedLink" scrolling="yes" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+        </div>
+        <div id="imageContainer">
+            <img id="directImage" alt="Embedded content">
+        </div>
         <iframe id="pdfViewer"></iframe>
     </div>
 
     <script>
         const container = document.getElementById('container');
+        const webContainer = document.getElementById('webContainer');
         const iframe = document.getElementById('embeddedLink');
+        const imageContainer = document.getElementById('imageContainer');
         const directImage = document.getElementById('directImage');
         const pdfViewer = document.getElementById('pdfViewer');
 
@@ -78,33 +102,22 @@
             return 'webpage';
         }
 
-        function adjustIframe() {
-            const containerWidth = container.offsetWidth;
-            const scale = containerWidth / 1400;
-            iframe.style.transform = `scale(${scale})`;
-            const heightAdjustment = Math.max(window.innerHeight / scale, window.innerHeight);
-            iframe.style.height = heightAdjustment + 'px';
-        }
-
         function hideAllElements() {
-            iframe.style.display = 'none';
-            directImage.style.display = 'none';
+            webContainer.style.display = 'none';
+            imageContainer.style.display = 'none';
             pdfViewer.style.display = 'none';
         }
 
         function handleImage(url) {
             hideAllElements();
-            directImage.style.display = 'block';
+            imageContainer.style.display = 'block';
             directImage.src = url;
             
-            // Ensure image fits container properly
             directImage.onload = function() {
+                const imgWidth = directImage.naturalWidth;
                 const containerWidth = container.offsetWidth;
-                const imageWidth = directImage.naturalWidth;
                 
-                if (imageWidth > containerWidth) {
-                    directImage.style.width = '100%';
-                } else {
+                if (imgWidth < containerWidth) {
                     directImage.style.width = 'auto';
                     directImage.style.maxWidth = '100%';
                 }
@@ -127,16 +140,14 @@
 
         function handleWebpage(url) {
             hideAllElements();
-            iframe.style.display = 'block';
+            webContainer.style.display = 'block';
             iframe.src = url;
-            adjustIframe();
         }
 
         function handleFallback(url) {
             hideAllElements();
-            iframe.style.display = 'block';
+            webContainer.style.display = 'block';
             iframe.src = url;
-            adjustIframe();
         }
 
         function initializeEmbed() {
