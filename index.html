@@ -25,6 +25,12 @@
             transform-origin: 0 0;
         }
 
+        #directImage {
+            max-width: 100%;
+            height: auto;
+            display: none;
+        }
+
         .error {
             padding: 16px;
             text-align: center;
@@ -36,18 +42,22 @@
 <body>
     <div id="container">
         <iframe id="embeddedLink" scrolling="yes"></iframe>
+        <img id="directImage" alt="Embedded content">
     </div>
 
     <script>
         const container = document.getElementById('container');
         const iframe = document.getElementById('embeddedLink');
+        const directImage = document.getElementById('directImage');
+
+        function isImageUrl(url) {
+            return url.match(/\.(jpg|jpeg|png|gif|bmp|webp)$/i);
+        }
 
         function adjustIframe() {
             const containerWidth = container.offsetWidth;
             const scale = containerWidth / 1400;
             iframe.style.transform = `scale(${scale})`;
-            
-            // Adjust height based on scale to maintain proportions
             const heightAdjustment = Math.max(window.innerHeight / scale, window.innerHeight);
             iframe.style.height = heightAdjustment + 'px';
         }
@@ -63,15 +73,29 @@
 
             try {
                 const url = new URL(link);
-                iframe.src = url.toString();
                 
-                // Initial adjustment
-                adjustIframe();
+                if (isImageUrl(url.toString())) {
+                    // Handle direct image links
+                    iframe.style.display = 'none';
+                    directImage.style.display = 'block';
+                    directImage.src = url.toString();
+                    
+                    directImage.onerror = function() {
+                        // Fallback to iframe if direct image loading fails
+                        directImage.style.display = 'none';
+                        iframe.style.display = 'block';
+                        iframe.src = url.toString();
+                        adjustIframe();
+                    };
+                } else {
+                    // Handle non-image URLs
+                    directImage.style.display = 'none';
+                    iframe.style.display = 'block';
+                    iframe.src = url.toString();
+                    adjustIframe();
+                }
                 
-                // Adjust on window resize
                 window.addEventListener('resize', adjustIframe);
-                
-                // Adjust when iframe content loads
                 iframe.onload = adjustIframe;
                 
             } catch (e) {
