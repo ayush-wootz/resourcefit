@@ -27,7 +27,6 @@
       width: 600px;
       height: 100%;
       border: none;
-      transform: scale(1);
       transform-origin: top left;
     }
   </style>
@@ -50,10 +49,9 @@
     if (link) {
       iframe.src = link;
 
-      // Automatically scale the page to fit the width of 1000px
-      const scaleFactor = 600 / window.innerWidth;
+      // Automatically scale the page to fit the width of 600px
+      const scaleFactor = window.innerWidth / 600;
       iframe.style.transform = `scale(${1 / scaleFactor})`;
-      iframe.style.transformOrigin = "top left";
     } else {
       document.body.innerHTML = '<p style="text-align: center; font-size: 18px; color: #333; margin-top: 20px;">No link provided. Please pass a link in the query parameter as ?link=your-url</p>';
     }
