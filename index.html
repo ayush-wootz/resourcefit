@@ -13,27 +13,22 @@
         }
 
         #container {
-            width: 100%;
+            width: 100vw;
             margin: 0;
             padding: 0;
-            overflow: hidden;
         }
 
         #imageWrapper {
             width: 100%;
             margin: 0;
             padding: 0;
-            position: relative;
-            overflow: hidden;
         }
 
         #directImage {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 2000px;
+            max-width: 100%;
+            width: 100vw;
             height: auto;
-            transform-origin: 0 0;
+            display: block;
         }
 
         #webContainer {
@@ -41,14 +36,12 @@
             margin: 0;
             padding: 0;
             display: none;
-            overflow: hidden;
         }
 
         #embeddedLink {
-            width: 1200px;
+            width: 100%;
             border: none;
             min-height: 100vh;
-            transform-origin: 0 0;
         }
 
         #pdfViewer {
@@ -101,22 +94,10 @@
             pdfViewer.style.display = 'none';
         }
 
-        function scaleImage() {
-            const containerWidth = container.offsetWidth;
-            const scale = containerWidth / 2000;
-            directImage.style.transform = `scale(${scale})`;
-            imageWrapper.style.height = `${directImage.offsetHeight * scale}px`;
-        }
-
         function handleImage(url) {
             hideAllElements();
             imageWrapper.style.display = 'block';
             directImage.src = url;
-            
-            directImage.onload = function() {
-                scaleImage();
-                window.addEventListener('resize', scaleImage);
-            };
             
             directImage.onerror = function() {
                 handleFallback(url);
@@ -137,21 +118,12 @@
             hideAllElements();
             webContainer.style.display = 'block';
             iframe.src = url;
-            scaleWebContent();
-            window.addEventListener('resize', scaleWebContent);
-        }
-
-        function scaleWebContent() {
-            const containerWidth = webContainer.offsetWidth;
-            const scale = containerWidth / 1200;
-            iframe.style.transform = `scale(${scale})`;
         }
 
         function handleFallback(url) {
             hideAllElements();
             webContainer.style.display = 'block';
             iframe.src = url;
-            scaleWebContent();
         }
 
         function initializeEmbed() {
