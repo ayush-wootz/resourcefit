@@ -13,7 +13,7 @@
         }
 
         #container {
-            width: 100vw;
+            width: 100%;
             margin: 0;
             padding: 0;
         }
@@ -22,22 +22,17 @@
             width: 100%;
             margin: 0;
             padding: 0;
-            position: relative;
+            overflow: hidden;
         }
 
         #directImage {
-            max-width: 100%;
-            width: 100vw;
-            height: auto;
-            display: block;
-        }
-
-        /* Special handling for large detailed images */
-        #directImage.large-image {
             position: relative;
             width: 100%;
             height: auto;
-            transform-origin: top left;
+            display: block;
+            object-fit: contain;
+            max-width: none;
+            transform-origin: left top;
         }
 
         #webContainer {
@@ -103,22 +98,24 @@
             pdfViewer.style.display = 'none';
         }
 
+        function scaleImage() {
+            const containerWidth = container.offsetWidth;
+            const imageWidth = directImage.naturalWidth;
+            if (imageWidth > containerWidth) {
+                const scale = containerWidth / imageWidth;
+                directImage.style.transform = `scale(${scale})`;
+                imageWrapper.style.height = `${directImage.naturalHeight * scale}px`;
+            }
+        }
+
         function handleImage(url) {
             hideAllElements();
             imageWrapper.style.display = 'block';
             directImage.src = url;
             
             directImage.onload = function() {
-                if (this.naturalWidth > 1.5 * window.innerWidth) {
-                    this.classList.add('large-image');
-                    const scale = window.innerWidth / this.naturalWidth;
-                    this.style.transform = `scale(${scale})`;
-                    imageWrapper.style.height = `${this.naturalHeight * scale}px`;
-                } else {
-                    this.classList.remove('large-image');
-                    this.style.transform = 'none';
-                    imageWrapper.style.height = 'auto';
-                }
+                scaleImage();
+                window.addEventListener('resize', scaleImage);
             };
             
             directImage.onerror = function() {
