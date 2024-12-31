@@ -23,18 +23,11 @@
             margin: 0;
             padding: 0;
             display: none;
-        }
-
-        #scaledImageContainer {
-            position: relative;
-            width: 100%;
-            height: 100%;
+            line-height: 0;
         }
 
         #directImage {
-            display: block;
-            max-width: 100%;
-            width: auto;
+            width: 100%;
             height: auto;
         }
 
@@ -72,7 +65,7 @@
             <iframe id="embeddedLink" scrolling="yes" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
         </div>
         <div id="imageWrapper">
-            <div id="scaledImageContainer"></div>
+            <img id="directImage" alt="Embedded content">
         </div>
         <iframe id="pdfViewer"></iframe>
     </div>
@@ -82,7 +75,7 @@
         const webContainer = document.getElementById('webContainer');
         const iframe = document.getElementById('embeddedLink');
         const imageWrapper = document.getElementById('imageWrapper');
-        const scaledImageContainer = document.getElementById('scaledImageContainer');
+        const directImage = document.getElementById('directImage');
         const pdfViewer = document.getElementById('pdfViewer');
 
         function detectContentType(url) {
@@ -101,27 +94,10 @@
             pdfViewer.style.display = 'none';
         }
 
-        function loadAndScaleImage(url) {
-            const img = new Image();
-            img.onload = function() {
-                const containerWidth = container.offsetWidth;
-                const scale = containerWidth / this.naturalWidth;
-                
-                scaledImageContainer.innerHTML = '';
-                img.id = 'directImage';
-                img.style.width = '100%';
-                scaledImageContainer.appendChild(img);
-                
-                scaledImageContainer.style.height = `${this.naturalHeight * scale}px`;
-            };
-            img.src = url;
-            return img;
-        }
-
         function handleImage(url) {
             hideAllElements();
             imageWrapper.style.display = 'block';
-            loadAndScaleImage(url);
+            directImage.src = url;
         }
 
         function handleDocument(url) {
@@ -166,13 +142,6 @@
         }
 
         initializeEmbed();
-        window.addEventListener('resize', () => {
-            const urlParams = new URLSearchParams(window.location.search);
-            const link = urlParams.get('link');
-            if (link && detectContentType(link) === 'image') {
-                handleImage(link);
-            }
-        });
     </script>
 </body>
 </html>
