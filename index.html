@@ -1,60 +1,47 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Link Embed</title>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      width: 100%;
-      background-color: #F9F9F9;
+import React, { useEffect, useState } from 'react';
+
+const LinkEmbed = () => {
+  const [embedUrl, setEmbedUrl] = useState('');
+
+  useEffect(() => {
+    // Extract the link parameter from the URL
+    const params = new URLSearchParams(window.location.search);
+    const linkParam = params.get('link');
+    
+    if (linkParam) {
+      try {
+        // Decode the URL parameter and validate it
+        const decodedUrl = decodeURIComponent(linkParam);
+        const urlObj = new URL(decodedUrl);
+        setEmbedUrl(urlObj.toString());
+      } catch (e) {
+        console.error('Invalid URL provided:', e);
+        setEmbedUrl('');
+      }
     }
+  }, []);
 
-    .embed-container {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-    }
+  if (!embedUrl) {
+    return (
+      <div className="w-full max-w-[600px] p-4 border border-red-300 rounded bg-red-50 text-red-700">
+        No valid URL provided in the link parameter
+      </div>
+    );
+  }
 
-    iframe {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 600px;
-      height: 100%;
-      border: none;
-      transform-origin: top left;
-    }
-  </style>
-</head>
-<body>
-  <div class="embed-container">
-    <iframe id="embeddedLink" src="" allowfullscreen></iframe>
-  </div>
+  return (
+    <div className="w-full max-w-[600px] overflow-hidden">
+      <div className="relative w-full pb-[56.25%]">
+        <iframe
+          src={embedUrl}
+          className="absolute top-0 left-0 w-full h-full border-0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          title="Web Embed"
+        />
+      </div>
+    </div>
+  );
+};
 
-  <script>
-    // Get the link from the query parameters in the URL
-    function getLinkFromQuery() {
-      const params = new URLSearchParams(window.location.search);
-      return params.get('link');
-    }
-
-    const link = getLinkFromQuery();
-    const iframe = document.getElementById('embeddedLink');
-
-    if (link) {
-      iframe.src = link;
-
-      // Automatically scale the page to fit the width of 600px
-      const scaleFactor = window.innerWidth / 600;
-      iframe.style.transform = `scale(${1 / scaleFactor})`;
-    } else {
-      document.body.innerHTML = '<p style="text-align: center; font-size: 18px; color: #333; margin-top: 20px;">No link provided. Please pass a link in the query parameter as ?link=your-url</p>';
-    }
-  </script>
-</body>
-</html>
+export default LinkEmbed;
