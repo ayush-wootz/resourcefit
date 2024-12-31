@@ -16,21 +16,24 @@
             width: 100%;
             margin: 0;
             padding: 0;
+            overflow: hidden;
         }
 
         #imageWrapper {
             width: 100%;
             margin: 0;
             padding: 0;
-            display: flex;
-            justify-content: center;
+            position: relative;
             overflow: hidden;
         }
 
         #directImage {
-            width: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 2000px;
             height: auto;
-            object-fit: contain;
+            transform-origin: 0 0;
         }
 
         #webContainer {
@@ -98,16 +101,22 @@
             pdfViewer.style.display = 'none';
         }
 
-        function scaleWebContent() {
-            const containerWidth = webContainer.offsetWidth;
-            const scale = containerWidth / 1200;
-            iframe.style.transform = `scale(${scale})`;
+        function scaleImage() {
+            const containerWidth = container.offsetWidth;
+            const scale = containerWidth / 2000;
+            directImage.style.transform = `scale(${scale})`;
+            imageWrapper.style.height = `${directImage.offsetHeight * scale}px`;
         }
 
         function handleImage(url) {
             hideAllElements();
-            imageWrapper.style.display = 'flex';
+            imageWrapper.style.display = 'block';
             directImage.src = url;
+            
+            directImage.onload = function() {
+                scaleImage();
+                window.addEventListener('resize', scaleImage);
+            };
             
             directImage.onerror = function() {
                 handleFallback(url);
@@ -130,6 +139,12 @@
             iframe.src = url;
             scaleWebContent();
             window.addEventListener('resize', scaleWebContent);
+        }
+
+        function scaleWebContent() {
+            const containerWidth = webContainer.offsetWidth;
+            const scale = containerWidth / 1200;
+            iframe.style.transform = `scale(${scale})`;
         }
 
         function handleFallback(url) {
