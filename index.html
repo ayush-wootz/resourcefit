@@ -9,11 +9,16 @@
             margin: 0;
             padding: 0;
             width: 100%;
+            overflow-x: hidden;
         }
 
         #container {
             width: 100%;
             position: relative;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
         }
 
         #embeddedLink {
@@ -26,9 +31,10 @@
         }
 
         #directImage {
-            max-width: 100%;
+            width: 100%;
             height: auto;
             display: none;
+            object-fit: contain;
         }
 
         #pdfViewer {
@@ -91,6 +97,19 @@
             directImage.style.display = 'block';
             directImage.src = url;
             
+            // Ensure image fits container properly
+            directImage.onload = function() {
+                const containerWidth = container.offsetWidth;
+                const imageWidth = directImage.naturalWidth;
+                
+                if (imageWidth > containerWidth) {
+                    directImage.style.width = '100%';
+                } else {
+                    directImage.style.width = 'auto';
+                    directImage.style.maxWidth = '100%';
+                }
+            };
+            
             directImage.onerror = function() {
                 handleFallback(url);
             };
@@ -143,9 +162,6 @@
                     default:
                         handleWebpage(url.toString());
                 }
-
-                window.addEventListener('resize', adjustIframe);
-                iframe.onload = adjustIframe;
                 
             } catch (e) {
                 container.innerHTML = '<div class="error">Invalid URL provided</div>';
