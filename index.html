@@ -1,47 +1,93 @@
-import React, { useEffect, useState } from 'react';
-
-const LinkEmbed = () => {
-  const [embedUrl, setEmbedUrl] = useState('');
-
-  useEffect(() => {
-    // Extract the link parameter from the URL
-    const params = new URLSearchParams(window.location.search);
-    const linkParam = params.get('link');
-    
-    if (linkParam) {
-      try {
-        // Decode the URL parameter and validate it
-        const decodedUrl = decodeURIComponent(linkParam);
-        const urlObj = new URL(decodedUrl);
-        setEmbedUrl(urlObj.toString());
-      } catch (e) {
-        console.error('Invalid URL provided:', e);
-        setEmbedUrl('');
-      }
-    }
-  }, []);
-
-  if (!embedUrl) {
-    return (
-      <div className="w-full max-w-[600px] p-4 border border-red-300 rounded bg-red-50 text-red-700">
-        No valid URL provided in the link parameter
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full max-w-[600px] overflow-hidden">
-      <div className="relative w-full pb-[56.25%]">
-        <iframe
-          src={embedUrl}
-          className="absolute top-0 left-0 w-full h-full border-0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-          title="Web Embed"
-        />
-      </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link Embed</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            background-color: #F9F9F9;
+            overflow: hidden;
+        }
+        
+        .embed-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+        }
+        
+        iframe {
+            width: 600px;
+            height: 100%;
+            border: none;
+            transform-origin: top center;
+            max-width: 100%;
+        }
+        
+        .error-message {
+            text-align: center;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            font-size: 16px;
+            color: #333;
+            margin: 20px;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="embed-container">
+        <iframe id="embeddedLink" src="" allowfullscreen></iframe>
     </div>
-  );
-};
+    
+    <script>
+        function getLinkFromQuery() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('link');
+        }
 
-export default LinkEmbed;
+        function updateIframeScale() {
+            const iframe = document.getElementById('embeddedLink');
+            const container = document.querySelector('.embed-container');
+            const containerWidth = container.offsetWidth;
+            
+            if (containerWidth < 600) {
+                const scale = containerWidth / 600;
+                iframe.style.transform = `scale(${scale})`;
+                iframe.style.width = '600px';
+            } else {
+                iframe.style.transform = 'none';
+                iframe.style.width = '600px';
+            }
+        }
+
+        const link = getLinkFromQuery();
+        const container = document.querySelector('.embed-container');
+        
+        if (link) {
+            try {
+                const url = new URL(link);
+                const iframe = document.getElementById('embeddedLink');
+                iframe.src = url.toString();
+                
+                updateIframeScale();
+                window.addEventListener('resize', updateIframeScale);
+            } catch (e) {
+                container.innerHTML = '<div class="error-message">Invalid URL provided. Please check the link parameter.</div>';
+            }
+        } else {
+            container.innerHTML = '<div class="error-message">No link provided. Please pass a link in the query parameter as ?link=your-url</div>';
+        }
+    </script>
+</body>
+</html>
