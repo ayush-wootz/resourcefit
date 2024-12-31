@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Link Embed</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      background-color: #F9F9F9;
+    }
+
+    .embed-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="embed-container">
+    <iframe id="embeddedLink" src="" allowfullscreen></iframe>
+  </div>
+
+  <script>
+    // Get the link from the query parameters in the URL
+    function getLinkFromQuery() {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('link');
+    }
+
+    const link = getLinkFromQuery();
+    const iframe = document.getElementById('embeddedLink');
+
+    if (link) {
+      iframe.src = link;
+    } else {
+      document.body.innerHTML = '<p style="text-align: center; font-size: 18px; color: #333; margin-top: 20px;">No link provided. Please pass a link in the query parameter as ?link=your-url</p>';
+    }
+  </script>
+</body>
+</html>
