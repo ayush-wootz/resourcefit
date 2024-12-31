@@ -9,15 +9,13 @@
             margin: 0;
             padding: 0;
             width: 100%;
-            height: 100%;
-            overflow: hidden;
+            overflow-x: hidden;
         }
 
         #container {
             width: 100%;
-            height: 100%;
             position: relative;
-            overflow: hidden;
+            overflow-x: hidden;
         }
 
         #embeddedLink {
@@ -25,7 +23,6 @@
             top: 0;
             left: 0;
             width: 1600px;
-            height: 100%;
             border: none;
             transform-origin: 0 0;
         }
@@ -50,6 +47,7 @@
             const containerWidth = container.offsetWidth;
             const scale = containerWidth / 1600;
             iframe.style.transform = `scale(${scale})`;
+            iframe.style.height = (window.innerHeight / scale) + 'px';
         }
 
         function initializeEmbed() {
@@ -65,10 +63,7 @@
                 const url = new URL(link);
                 iframe.src = url.toString();
                 
-                // Initial scale adjustment
                 adjustIframeScale();
-                
-                // Adjust scale on window resize
                 window.addEventListener('resize', adjustIframeScale);
             } catch (e) {
                 container.innerHTML = '<div class="error">Invalid URL provided</div>';
