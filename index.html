@@ -22,17 +22,20 @@
             width: 100%;
             margin: 0;
             padding: 0;
-            overflow: hidden;
+            display: none;
+        }
+
+        #scaledImageContainer {
+            position: relative;
+            width: 100%;
+            height: 100%;
         }
 
         #directImage {
-            position: relative;
-            width: 100%;
-            height: auto;
             display: block;
-            object-fit: contain;
-            max-width: none;
-            transform-origin: left top;
+            max-width: 100%;
+            width: auto;
+            height: auto;
         }
 
         #webContainer {
@@ -69,7 +72,7 @@
             <iframe id="embeddedLink" scrolling="yes" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
         </div>
         <div id="imageWrapper">
-            <img id="directImage" alt="Embedded content">
+            <div id="scaledImageContainer"></div>
         </div>
         <iframe id="pdfViewer"></iframe>
     </div>
@@ -79,7 +82,7 @@
         const webContainer = document.getElementById('webContainer');
         const iframe = document.getElementById('embeddedLink');
         const imageWrapper = document.getElementById('imageWrapper');
-        const directImage = document.getElementById('directImage');
+        const scaledImageContainer = document.getElementById('scaledImageContainer');
         const pdfViewer = document.getElementById('pdfViewer');
 
         function detectContentType(url) {
@@ -98,48 +101,36 @@
             pdfViewer.style.display = 'none';
         }
 
-        function scaleImage() {
-            const containerWidth = container.offsetWidth;
-            const imageWidth = directImage.naturalWidth;
-            if (imageWidth > containerWidth) {
-                const scale = containerWidth / imageWidth;
-                directImage.style.transform = `scale(${scale})`;
-                imageWrapper.style.height = `${directImage.naturalHeight * scale}px`;
-            }
+        function loadAndScaleImage(url) {
+            const img = new Image();
+            img.onload = function() {
+                const containerWidth = container.offsetWidth;
+                const scale = containerWidth / this.naturalWidth;
+                
+                scaledImageContainer.innerHTML = '';
+                img.id = 'directImage';
+                img.style.width = '100%';
+                scaledImageContainer.appendChild(img);
+                
+                scaledImageContainer.style.height = `${this.naturalHeight * scale}px`;
+            };
+            img.src = url;
+            return img;
         }
 
         function handleImage(url) {
             hideAllElements();
             imageWrapper.style.display = 'block';
-            directImage.src = url;
-            
-            directImage.onload = function() {
-                scaleImage();
-                window.addEventListener('resize', scaleImage);
-            };
-            
-            directImage.onerror = function() {
-                handleFallback(url);
-            };
+            loadAndScaleImage(url);
         }
 
         function handleDocument(url) {
             hideAllElements();
             pdfViewer.style.display = 'block';
             pdfViewer.src = url;
-            
-            pdfViewer.onerror = function() {
-                handleFallback(url);
-            };
         }
 
         function handleWebpage(url) {
-            hideAllElements();
-            webContainer.style.display = 'block';
-            iframe.src = url;
-        }
-
-        function handleFallback(url) {
             hideAllElements();
             webContainer.style.display = 'block';
             iframe.src = url;
@@ -175,6 +166,13 @@
         }
 
         initializeEmbed();
+        window.addEventListener('resize', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const link = urlParams.get('link');
+            if (link && detectContentType(link) === 'image') {
+                handleImage(link);
+            }
+        });
     </script>
 </body>
 </html>
