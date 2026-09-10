@@ -50,7 +50,7 @@
         try {
             const parsed = new URL(url);
             const pathExtension = parsed.pathname.split(".").pop().toLowerCase();
-            if (/^(xlsx|xls|xlsm|xlsb)$/.test(pathExtension)) return pathExtension;
+            if (/^(xlsx|xls|xlsm|xlsb|pdf|doc|docx|ppt|pptx|jpg|jpeg|png|gif|bmp|webp|svg)$/.test(pathExtension)) return pathExtension;
             const fileName = parsed.searchParams.get("file") || parsed.searchParams.get("filename") || "";
             return fileName.split(".").pop().toLowerCase();
         } catch (_) {
@@ -62,7 +62,8 @@
         const extension = getExtension(url);
         if (["xlsx", "xls", "xlsm", "xlsb"].includes(extension)) return "workbook";
         if (["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg"].includes(extension)) return "image";
-        if (extension === "pdf") return "pdf";
+        // Preserve the original document iframe route for non-Excel documents.
+        if (["pdf", "doc", "docx", "ppt", "pptx"].includes(extension)) return "pdf";
         return "webpage";
     }
 
