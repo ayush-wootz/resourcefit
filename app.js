@@ -8,26 +8,21 @@
         imageWrapper: document.getElementById("imageWrapper"),
         directImage: document.getElementById("directImage"),
         pdfViewer: document.getElementById("pdfViewer"),
-        officeContainer: document.getElementById("officeContainer"),
-        officePreview: document.getElementById("officePreview")
+        workbookContainer: document.getElementById("workbookContainer"),
+        workbookTitle: document.getElementById("workbookTitle"),
+        sheetTabs: document.getElementById("sheetTabs"),
+        sheetViewport: document.getElementById("sheetViewport")
     };
 
     const query = new URLSearchParams(window.location.search);
     const sourceLink = query.get("link");
-    const loginHint = query.get("login_hint") || undefined;
-    const suppliedTenantId = query.get("tenant_id");
-    const suppliedClientId = query.get("client_id");
-    const config = window.RESOURCEFIT_CONFIG || {};
-    const tenantId = suppliedTenantId || config.tenantId;
-    const clientId = suppliedClientId || config.clientId;
-    let msalClient;
 
     function hideAll() {
         elements.status.style.display = "none";
         elements.webContainer.style.display = "none";
         elements.imageWrapper.style.display = "none";
         elements.pdfViewer.style.display = "none";
-        elements.officeContainer.style.display = "none";
+        elements.workbookContainer.style.display = "none";
     }
 
     function escapeHtml(value) {
@@ -39,55 +34,47 @@
             .replaceAll("'", "&#039;");
     }
 
-    function showStatus(title, message, options) {
-        const settings = options || {};
+    function showStatus(title, message, loading) {
         hideAll();
         elements.status.style.display = "flex";
         elements.status.innerHTML = `
             <div class="status-card">
-                ${settings.loading ? '<div class="spinner" aria-hidden="true"></div>' : ""}
+                ${loading ? '<div class="spinner" aria-hidden="true"></div>' : ""}
                 <h1>${escapeHtml(title)}</h1>
                 <p>${escapeHtml(message)}</p>
-                <div class="actions">
-                    ${settings.signIn ? '<button id="signInButton" type="button">Sign in to preview</button>' : ""}
-                    ${sourceLink ? '<a class="button-link" href="' + escapeHtml(sourceLink) + '" target="_blank" rel="noopener noreferrer">Open in Excel</a>' : ""}
-                </div>
+                ${sourceLink ? `<div class="actions"><a class="button-link" href="${escapeHtml(sourceLink)}" target="_blank" rel="noopener noreferrer">Download original</a></div>` : ""}
             </div>`;
-
-        const signInButton = document.getElementById("signInButton");
-        if (signInButton) signInButton.addEventListener("click", signInAndPreview);
     }
 
     function getExtension(url) {
-        try { return new URL(url).pathname.split(".").pop().toLowerCase(); }
-        catch (_) { return ""; }
+        try {
+            const parsed = new URL(url);
+            const pathExtension = parsed.pathname.split(".").pop().toLowerCase();
+            if (/^(xlsx|xls|xlsm|xlsb)$/.test(pathExtension)) return pathExtension;
+            const fileName = parsed.searchParams.get("file") || parsed.searchParams.get("filename") || "";
+            return fileName.split(".").pop().toLowerCase();
+        } catch (_) {
+            return "";
+        }
     }
 
     function detectContentType(url) {
         const extension = getExtension(url);
-        const imageExtensions = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg"];
-        const documentExtensions = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"];
-        if (imageExtensions.includes(extension)) return "image";
-        if (documentExtensions.includes(extension)) return "document";
+        if (["xlsx", "xls", "xlsm", "xlsb"].includes(extension)) return "workbook";
+        if (["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg"].includes(extension)) return "image";
+        if (extension === "pdf") return "pdf";
         return "webpage";
     }
 
-    function isMicrosoftWorkbook(url) {
+    function fileNameFromUrl(url) {
         try {
             const parsed = new URL(url);
-            const microsoftHost = parsed.hostname.endsWith(".sharepoint.com") ||
-                parsed.hostname === "onedrive.live.com" || parsed.hostname.endsWith(".onedrive.com");
-            const workbookPath = /\.xls(x|m|b)?$/i.test(parsed.pathname) || /\/\:x\:\//i.test(parsed.pathname) ||
-                /\/doc2\.aspx$/i.test(parsed.pathname) || /sourcedoc=/i.test(parsed.search);
-            return microsoftHost && workbookPath;
-        } catch (_) { return false; }
-    }
-
-    function toShareId(url) {
-        const bytes = new TextEncoder().encode(url);
-        let binary = "";
-        bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-        return "u!" + btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+            const queryName = parsed.searchParams.get("file") || parsed.searchParams.get("filename");
+            const pathName = decodeURIComponent(parsed.pathname.split("/").pop() || "");
+            return queryName || pathName || "Excel workbook";
+        } catch (_) {
+            return "Excel workbook";
+        }
     }
 
     function showImage(url) {
@@ -108,129 +95,82 @@
         elements.embeddedLink.src = url;
     }
 
-    function showOfficePreview(preview) {
+    function renderSheet(workbook, sheetName, activeButton) {
+        elements.sheetTabs.querySelectorAll("button").forEach((button) => {
+            const selected = button === activeButton;
+            button.classList.toggle("active", selected);
+            button.setAttribute("aria-selected", String(selected));
+            button.tabIndex = selected ? 0 : -1;
+        });
+
+        const worksheet = workbook.Sheets[sheetName];
+        elements.sheetViewport.innerHTML = window.XLSX.utils.sheet_to_html(worksheet, {
+            id: "sheetTable",
+            editable: false
+        });
+        elements.sheetViewport.scrollTo({ top: 0, left: 0 });
+    }
+
+    function showWorkbook(workbook) {
+        if (!workbook.SheetNames.length) throw new Error("The workbook does not contain any worksheets.");
+
         hideAll();
-        elements.officeContainer.style.display = "block";
-        if (preview.getUrl) {
-            elements.officePreview.src = preview.getUrl;
-            return;
-        }
-        if (preview.postUrl && preview.postParameters) {
-            const form = document.createElement("form");
-            form.method = "post";
-            form.action = preview.postUrl;
-            form.target = elements.officePreview.name;
-            form.hidden = true;
-            new URLSearchParams(preview.postParameters).forEach((value, key) => {
-                const input = document.createElement("input");
-                input.type = "hidden";
-                input.name = key;
-                input.value = value;
-                form.appendChild(input);
-            });
-            document.body.appendChild(form);
-            form.submit();
-            form.remove();
-            return;
-        }
-        throw new Error("Microsoft did not return an embeddable preview URL.");
-    }
+        elements.workbookContainer.style.display = "flex";
+        elements.workbookTitle.textContent = fileNameFromUrl(sourceLink);
+        elements.sheetTabs.replaceChildren();
 
-    async function initializeMsal() {
-        if (!tenantId || !clientId) throw new Error("Microsoft preview has not been configured yet.");
-        if (!window.msal) throw new Error("Microsoft sign-in could not be loaded.");
-        msalClient = new window.msal.PublicClientApplication({
-            auth: {
-                clientId,
-                authority: `https://login.microsoftonline.com/${tenantId}`,
-                redirectUri: new URL("./auth.html", window.location.href).href,
-                navigateToLoginRequestUrl: false
-            },
-            cache: { cacheLocation: "localStorage", storeAuthStateInCookie: true }
+        workbook.SheetNames.forEach((sheetName, index) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "sheet-tab";
+            button.textContent = sheetName;
+            button.setAttribute("role", "tab");
+            button.setAttribute("aria-selected", "false");
+            button.addEventListener("click", () => renderSheet(workbook, sheetName, button));
+            elements.sheetTabs.appendChild(button);
+            if (index === 0) renderSheet(workbook, sheetName, button);
         });
-        if (typeof msalClient.initialize === "function") await msalClient.initialize();
     }
 
-    async function getToken(interactive) {
-        const scopes = ["Files.Read"];
-        let account = msalClient.getAllAccounts()[0];
-        if (!account && !interactive) {
-            const response = await msalClient.ssoSilent({ scopes, loginHint });
-            return response.accessToken;
-        }
-        if (!account && interactive) {
-            const response = await msalClient.loginPopup({ scopes, loginHint });
-            return response.accessToken;
-        }
+    async function loadWorkbook(url) {
+        showStatus("Loading workbook", "Downloading and preparing the read-only preview…", true);
+        if (!window.XLSX) throw new Error("The Excel preview library could not be loaded.");
+
+        let response;
         try {
-            const response = await msalClient.acquireTokenSilent({ scopes, account });
-            return response.accessToken;
-        } catch (error) {
-            if (!interactive) throw error;
-            const response = await msalClient.acquireTokenPopup({ scopes, account });
-            return response.accessToken;
+            response = await fetch(url, { mode: "cors", credentials: "omit" });
+        } catch (_) {
+            throw new Error("The file could not be downloaded. Use a direct Glide file URL that permits browser access.");
         }
+        if (!response.ok) throw new Error(`The file download failed (HTTP ${response.status}).`);
+
+        const data = await response.arrayBuffer();
+        if (!data.byteLength) throw new Error("The downloaded file is empty.");
+        const workbook = window.XLSX.read(data, { type: "array", cellDates: true });
+        showWorkbook(workbook);
     }
 
-    async function requestPreview(accessToken) {
-        const response = await fetch(`https://graph.microsoft.com/v1.0/shares/${toShareId(sourceLink)}/driveItem/preview`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-            body: "{}"
-        });
-        if (!response.ok) {
-            let detail = "";
-            try {
-                const data = await response.json();
-                detail = data.error && data.error.message ? ` ${data.error.message}` : "";
-            } catch (_) {}
-            throw new Error(`Microsoft could not create the preview.${detail}`);
-        }
-        return response.json();
-    }
-
-    async function loadMicrosoftPreview(interactive) {
-        showStatus("Loading Excel preview", "Checking your Microsoft access…", { loading: true });
-        try {
-            if (!msalClient) await initializeMsal();
-            const preview = await requestPreview(await getToken(interactive));
-            showOfficePreview(preview);
-        } catch (error) {
-            if (!tenantId || !clientId) {
-                showStatus(
-                    "Microsoft preview setup required",
-                    "The Microsoft application and tenant identifiers still need to be configured."
-                );
-                return;
-            }
-            if (!interactive) {
-                showStatus("Microsoft sign-in required", "Sign in once to verify your access to this workbook.", { signIn: true });
-                return;
-            }
-            showStatus("Preview unavailable", error && error.message ? error.message : "Open the workbook in Excel to continue.");
-        }
-    }
-
-    async function signInAndPreview() { await loadMicrosoftPreview(true); }
-
-    function initialize() {
+    async function initialize() {
         if (!sourceLink) {
             showStatus("No file selected", "Provide a link parameter to preview a file.");
             return;
         }
-        try { new URL(sourceLink); }
-        catch (_) {
+        try {
+            new URL(sourceLink);
+        } catch (_) {
             showStatus("Invalid link", "The supplied file link is not a valid URL.");
             return;
         }
-        if (isMicrosoftWorkbook(sourceLink)) {
-            loadMicrosoftPreview(false);
-            return;
-        }
-        switch (detectContentType(sourceLink)) {
-            case "image": showImage(sourceLink); break;
-            case "document": showPdf(sourceLink); break;
-            default: showWebpage(sourceLink);
+
+        try {
+            switch (detectContentType(sourceLink)) {
+                case "workbook": await loadWorkbook(sourceLink); break;
+                case "image": showImage(sourceLink); break;
+                case "pdf": showPdf(sourceLink); break;
+                default: showWebpage(sourceLink);
+            }
+        } catch (error) {
+            showStatus("Preview unavailable", error && error.message ? error.message : "The file could not be previewed.");
         }
     }
 
