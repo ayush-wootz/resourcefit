@@ -11,11 +11,20 @@
         workbookContainer: document.getElementById("workbookContainer"),
         workbookTitle: document.getElementById("workbookTitle"),
         sheetTabs: document.getElementById("sheetTabs"),
-        sheetViewport: document.getElementById("sheetViewport")
+        sheetViewport: document.getElementById("sheetViewport"),
+        driveContainer: document.getElementById("driveContainer"),
+        driveTitle: document.getElementById("driveTitle"),
+        driveOpen: document.getElementById("driveOpen"),
+        driveFrame: document.getElementById("driveFrame"),
+        driveTabs: document.getElementById("driveTabs")
     };
 
     const query = new URLSearchParams(window.location.search);
     const sourceLink = query.get("link");
+    const driveParam = query.get("driveId") || query.get("driveIds") || sourceLink;
+    const driveNames = (query.get("names") || "").split(",").map((name) => name.trim());
+    // Google Drive previews accept bare file ids, so the "open original" link is resolved separately.
+    let originalLink = sourceLink;
 
     function hideAll() {
         elements.status.style.display = "none";
@@ -23,6 +32,7 @@
         elements.imageWrapper.style.display = "none";
         elements.pdfViewer.style.display = "none";
         elements.workbookContainer.style.display = "none";
+        elements.driveContainer.style.display = "none";
         const sharePointPdf = document.getElementById("sharePointPdf");
         if (sharePointPdf) sharePointPdf.style.display = "none";
     }
@@ -44,7 +54,7 @@
                 ${loading ? '<div class="spinner" aria-hidden="true"></div>' : ""}
                 <h1>${escapeHtml(title)}</h1>
                 <p>${escapeHtml(message)}</p>
-                ${sourceLink ? `<div class="actions"><a class="button-link" href="${escapeHtml(sourceLink)}" target="_blank" rel="noopener noreferrer">Download original</a></div>` : ""}
+                ${originalLink ? `<div class="actions"><a class="button-link" href="${escapeHtml(originalLink)}" target="_blank" rel="noopener noreferrer">Download original</a></div>` : ""}
             </div>`;
     }
 
@@ -154,7 +164,101 @@
         showWorkbook(workbook, title);
     }
 
+    // --- Google Drive previews -------------------------------------------------
+    // Drive renders uploaded PDFs, Office files and images server-side, so a bare
+    // file id can be embedded without CORS downloads, SheetJS or a backend.
+    const DRIVE_ID_PATTERN = /^[A-Za-z0-9_-]{25,45}$/;
+    const DRIVE_EDITOR_KINDS = ["spreadsheets", "document", "presentation", "drawings"];
+
+    function driveTargetFrom(token) {
+        const value = String(token || "").trim();
+        if (!value) return null;
+        if (DRIVE_ID_PATTERN.test(value)) return { id: value, kind: "file" };
+
+        let parsed;
+        try {
+            parsed = new URL(value);
+        } catch (_) {
+            return null;
+        }
+        const host = parsed.hostname.toLowerCase();
+        if (host !== "drive.google.com" && host !== "docs.google.com") return null;
+
+        const segments = parsed.pathname.split("/").filter(Boolean);
+        const marker = segments.indexOf("d");
+        const id = (marker !== -1 ? segments[marker + 1] : "") || parsed.searchParams.get("id") || "";
+        if (!DRIVE_ID_PATTERN.test(id)) return null;
+
+        const kind = DRIVE_EDITOR_KINDS.includes(segments[0]) ? segments[0] : "file";
+        return { id, kind };
+    }
+
+    function driveTargets(input) {
+        const tokens = String(input || "").split(/[,\s]+/).filter(Boolean);
+        if (!tokens.length) return [];
+        const targets = tokens.map(driveTargetFrom);
+        // Mixed input stays on the existing routes rather than half-rendering.
+        return targets.every(Boolean) ? targets : [];
+    }
+
+    function drivePreviewUrl(target) {
+        if (target.kind === "file") return `https://drive.google.com/file/d/${target.id}/preview`;
+        return `https://docs.google.com/${target.kind}/d/${target.id}/preview`;
+    }
+
+    function driveOpenUrl(target) {
+        if (target.kind === "file") return `https://drive.google.com/file/d/${target.id}/view`;
+        return `https://docs.google.com/${target.kind}/d/${target.id}/view`;
+    }
+
+    function driveLabel(index) {
+        return driveNames[index] || `File ${index + 1}`;
+    }
+
+    function showDriveTarget(targets, index, activeButton) {
+        elements.driveTabs.querySelectorAll("button").forEach((button) => {
+            const selected = button === activeButton;
+            button.classList.toggle("active", selected);
+            button.setAttribute("aria-selected", String(selected));
+            button.tabIndex = selected ? 0 : -1;
+        });
+
+        const target = targets[index];
+        elements.driveTitle.textContent = driveLabel(index);
+        elements.driveOpen.href = driveOpenUrl(target);
+        elements.driveFrame.src = drivePreviewUrl(target);
+    }
+
+    function showDrive(targets) {
+        originalLink = driveOpenUrl(targets[0]);
+        if (targets.length === 1) {
+            showPdf(drivePreviewUrl(targets[0]));
+            return;
+        }
+
+        hideAll();
+        elements.driveContainer.style.display = "flex";
+        elements.driveTabs.replaceChildren();
+        targets.forEach((target, index) => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "sheet-tab";
+            button.textContent = driveLabel(index);
+            button.setAttribute("role", "tab");
+            button.setAttribute("aria-selected", "false");
+            button.addEventListener("click", () => showDriveTarget(targets, index, button));
+            elements.driveTabs.appendChild(button);
+            if (index === 0) showDriveTarget(targets, index, button);
+        });
+    }
+
     async function initialize() {
+        const targets = driveTargets(driveParam);
+        if (targets.length) {
+            showDrive(targets);
+            return;
+        }
+
         if (!sourceLink) {
             showStatus("No file selected", "Provide a link parameter to preview a file.");
             return;

@@ -1,6 +1,39 @@
 # ResourceFit
 
-ResourceFit previews images, PDFs, web pages, and Excel workbooks from a `link` query parameter.
+ResourceFit previews images, PDFs, web pages, Excel workbooks, and Google Drive files from a `link` query parameter.
+
+## Google Drive previews
+
+Pass a Google Drive file id, a Drive share link, or a Google Docs/Sheets/Slides link:
+
+```text
+https://ayush-wootz.github.io/resourcefit/?link=1H8e8ldZDcvKo5RRi89b49vaDYJeE0Nb0
+https://ayush-wootz.github.io/resourcefit/?link=ENCODED_DRIVE_SHARE_LINK
+```
+
+Drive renders the file itself, so uploaded Excel workbooks, PDFs, Word, PowerPoint, and images
+all preview without a CORS download, SheetJS, or the backend. Recognised inputs are a bare id,
+`/file/d/<id>/view`, `open?id=<id>`, `uc?id=<id>`, and `docs.google.com/<spreadsheets|document|presentation>/d/<id>/...`.
+
+Two requirements:
+
+- Sharing must be **Anyone with the link → Viewer**. Otherwise the embed shows a sign-in wall,
+  which usually fails inside a webview even for people who do have access.
+- The viewer always embeds `/preview`, never `/view`. Drive sends `X-Frame-Options: SAMEORIGIN`
+  on `/view`, so that URL renders blank in an iframe.
+
+Comma-separate ids to show several files as tabs, with optional labels:
+
+```text
+?link=ID_ONE,ID_TWO,ID_THREE&names=Quote,Drawing,Spec
+```
+
+Ids may also be passed as `driveId` instead of `link`. Mixed input (a Drive id plus a non-Drive
+URL) falls through to the existing routes rather than rendering half of it.
+
+Drive workbooks use Google's viewer rather than the SheetJS worksheet tabs, because
+`drive.google.com` download URLs send no CORS headers. Serving Drive bytes through the backend
+to reuse the SheetJS renderer would be a separate change.
 
 ## Read-only Excel previews
 
