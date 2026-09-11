@@ -35,6 +35,20 @@ Drive workbooks use Google's viewer rather than the SheetJS worksheet tabs, beca
 `drive.google.com` download URLs send no CORS headers. Serving Drive bytes through the backend
 to reuse the SheetJS renderer would be a separate change.
 
+## Zoom and fullscreen
+
+A floating control bar offers fullscreen and, where the page renders the content
+itself, zoom. Fullscreen uses the Fullscreen API on the whole viewer, so it also
+covers the Drive and SharePoint frames. Hosts that embed this page without
+`allow="fullscreen"` reject that call, and the button then expands the viewer
+within the embed instead; the adjacent button opens the viewer in a new tab.
+
+Pinch, drag, double-tap, and ctrl+wheel zoom apply to Excel worksheets and images.
+They do not apply to the Google Drive, SharePoint, PDF, or web frames: touch events
+inside a cross-origin iframe never reach this page, so those viewers own their own
+gestures and cannot be extended from here. The zoom buttons hide on those routes
+rather than appearing inert.
+
 ## Read-only Excel previews
 
 Excel files are downloaded and parsed in the browser with SheetJS. The viewer shows worksheet tabs and cell values without enabling edits or requiring a Microsoft account.

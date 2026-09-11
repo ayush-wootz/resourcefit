@@ -104,6 +104,53 @@
             overflow: auto;
             background: #eef1f4;
         }
+        #sheetSurface { width: max-content; }
+        #viewerControls {
+            position: fixed;
+            right: 12px;
+            bottom: 12px;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px;
+            border: 1px solid #d9dee7;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.94);
+            box-shadow: 0 6px 20px rgba(23, 32, 51, 0.16);
+        }
+        #zoomControls { display: none; align-items: center; gap: 4px; }
+        .control-button {
+            min-width: 36px;
+            min-height: 36px;
+            padding: 6px 10px;
+            border: 0;
+            border-radius: 8px;
+            color: #2c3a4f;
+            background: transparent;
+            font: inherit;
+            font-size: 0.85rem;
+            font-weight: 600;
+            line-height: 1;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .control-button:hover { background: #eef1f5; }
+        .control-button:focus-visible {
+            outline: 3px solid rgba(15, 108, 189, 0.32);
+            outline-offset: 2px;
+        }
+        #zoomReset { min-width: 52px; }
+        .control-divider { width: 1px; height: 22px; background: #dce2ea; }
+        body.maximized #container {
+            position: fixed;
+            inset: 0;
+            z-index: 10;
+            background: #fff;
+        }
         #sheetTable {
             min-width: 100%;
             border-collapse: separate;
@@ -175,18 +222,29 @@
                 <h1 id="driveTitle">Google Drive file</h1>
                 <a id="driveOpen" class="header-link" href="https://drive.google.com" target="_blank" rel="noopener noreferrer">Open in Drive</a>
             </header>
-            <iframe id="driveFrame" title="Google Drive preview" allow="autoplay"></iframe>
+            <iframe id="driveFrame" title="Google Drive preview" allow="autoplay; fullscreen" allowfullscreen></iframe>
             <nav id="driveTabs" role="tablist" aria-label="Files"></nav>
         </section>
         <div id="webContainer">
-            <iframe id="embeddedLink" title="Embedded content" scrolling="yes"
+            <iframe id="embeddedLink" title="Embedded content" scrolling="yes" allowfullscreen
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads allow-top-navigation-by-user-activation"></iframe>
         </div>
         <div id="imageWrapper"><img id="directImage" alt="Embedded content"></div>
-        <iframe id="pdfViewer" title="Document preview"></iframe>
+        <iframe id="pdfViewer" title="Document preview" allowfullscreen></iframe>
+        <div id="viewerControls">
+            <div id="zoomControls" role="group" aria-label="Zoom">
+                <button type="button" id="zoomOut" class="control-button" aria-label="Zoom out">&minus;</button>
+                <button type="button" id="zoomReset" class="control-button" aria-label="Reset zoom">100%</button>
+                <button type="button" id="zoomIn" class="control-button" aria-label="Zoom in">&plus;</button>
+                <span class="control-divider" aria-hidden="true"></span>
+            </div>
+            <button type="button" id="fullscreenToggle" class="control-button" aria-label="Toggle fullscreen" title="Fullscreen">&#9974;</button>
+            <a id="openTab" class="control-button" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open in a new tab" title="Open in a new tab">&#8599;</a>
+        </div>
     </main>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+    <script src="./zoom.js?v=zoom-1"></script>
     <script src="./viewer-config.js?v=render-1"></script>
-    <script src="./app.js?v=drive-preview-1"></script>
+    <script src="./app.js?v=drive-preview-2"></script>
 </body>
 </html>
