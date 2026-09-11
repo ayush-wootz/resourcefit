@@ -1,3 +1,3 @@
-// Public configuration only. Set this to the HTTPS origin of the deployed backend.
-// Keep empty to retain the existing viewer behavior until the backend is ready.
-window.RESOURCEFIT_CONFIG = Object.freeze({ sharePointApiBase: "" });
+// Public configuration only. Microsoft credentials stay on the Render backend.
+// Set sharePointApiBase to an empty string to disable the SharePoint backend route.
+window.RESOURCEFIT_CONFIG = Object.freeze({ sharePointApiBase: "https://resourcefit.onrender.com" });
