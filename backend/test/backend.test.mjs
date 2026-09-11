@@ -36,7 +36,7 @@ function fixture(overrides = {}) {
         assert.equal(new URL(url).hostname, host);
         assert.equal(options.headers?.Authorization, undefined);
         if (state.redirect) return new Response(null, { status: 302, headers: { location: state.redirect } });
-        return new Response(state.bytes);
+        return new Response(state.bytes, { headers: { "content-type": state.mime || "application/octet-stream" } });
     };
     const dependencies = { fetchImpl, now: () => state.time };
     return { state, dependencies, service: createPreviewService(config, dependencies) };
@@ -190,4 +190,79 @@ test("startup fails closed for absent config and invalid registrations", () => {
     assert.throws(() => configuration({ ...env, PUBLIC_SHARE_LINKS: "[]" }));
     assert.throws(() => configuration({ ...env, PUBLIC_SHARE_LINKS: '["https://evil.example/file"]' }));
     assert.throws(() => configuration({ ...env, CACHE_TTL_SECONDS: "301" }));
+    const dynamic = configuration({ ...env, ALLOW_DYNAMIC_PUBLIC_LINKS: "true", PUBLIC_SHARE_LINKS: "" });
+    assert.equal(dynamic.allowDynamic, true);
+    assert.equal(dynamic.publicLinks.size, 0);
+    assert.throws(() => configuration({ ...env, ALLOW_DYNAMIC_PUBLIC_LINKS: "yes" }));
+});
+
+test("dynamic URLs require no registration and download anonymously, never using the app-signed URL", async () => {
+    const { state, dependencies } = fixture({ bytes: "PKworkbook-v1" });
+    const service = createPreviewService({ ...config, allowDynamic: true, publicLinks: new Set() }, dependencies);
+    const dynamicLink = `https://${host}/:x:/g/personal/user/new-token?e=xyz&nav=sheet`;
+    const entry = await service.get(dynamicLink);
+    assert.equal(entry.bytes.toString(), "PKworkbook-v1");
+    const request = state.requests.at(-1);
+    const url = new URL(request.url);
+    assert.equal(url.pathname, new URL(dynamicLink).pathname);
+    assert.equal(url.searchParams.get("e"), "xyz");
+    assert.equal(url.searchParams.get("nav"), "sheet");
+    assert.equal(url.searchParams.get("download"), "1");
+    assert.equal(request.options.credentials, "omit");
+    assert.equal(request.options.headers?.Authorization, undefined);
+    assert.equal(request.options.headers?.Cookie, undefined);
+    assert.ok(!state.requests.some(request => request.url.includes("secret=signed")));
+    const count = state.requests.length;
+    assert.equal(await service.get(dynamicLink), entry);
+    assert.equal(state.requests.length, count);
+    state.time += 300001;
+    await service.get(dynamicLink);
+    assert.equal(state.requests.length, count + 3); // permission, metadata, anonymous public download
+});
+
+test("dynamic links fail closed on login/password pages even if Graph says anonymous", async () => {
+    for (const overrides of [
+        { redirect: "https://login.microsoftonline.com/signin" },
+        { bytes: "<html>Password required</html>", mime: "text/html" },
+        { bytes: "<html>Password required</html>", mime: "application/octet-stream" },
+        { bytes: "not-a-workbook", mime: "application/octet-stream" }
+    ]) {
+        const { dependencies, state } = fixture(overrides);
+        const service = createPreviewService({ ...config, allowDynamic: true, publicLinks: new Set() }, dependencies);
+        await assert.rejects(service.get(link), { status: 403 });
+        assert.ok(!state.requests.some(request => request.url.includes("secret=signed")));
+    }
+});
+
+test("dynamic access still rejects non-public permissions and the wrong tenant", async () => {
+    for (const permission of [{}, { link: { scope: "organization", type: "view" } },
+        { link: { scope: "anonymous", type: "view" }, hasPassword: true }]) {
+        const { dependencies, state } = fixture({ permission });
+        const service = createPreviewService({ ...config, allowDynamic: true }, dependencies);
+        await assert.rejects(service.get(link), { status: 403 });
+        assert.equal(state.requests.length, 2);
+        await assert.rejects(service.get(link.replace(host, "other.sharepoint.com")), { status: 403 });
+        assert.equal(state.requests.length, 2);
+    }
+});
+
+test("dynamic cache entries are bounded even for many small files", async () => {
+    const { state, dependencies } = fixture({ bytes: "PKsmall" });
+    const service = createPreviewService({ ...config, allowDynamic: true, maxCacheEntries: 1 }, dependencies);
+    await service.get(link);
+    await service.get(otherLink);
+    const count = state.requests.length;
+    await service.get(link);
+    assert.equal(state.requests.length, count + 3);
+});
+
+test("dynamic cache is evicted if a link starts requiring a password", async () => {
+    const { state, dependencies } = fixture({ bytes: "PKworkbook" });
+    const service = createPreviewService({ ...config, allowDynamic: true }, dependencies);
+    await service.get(link);
+    state.time += 300001;
+    state.bytes = "<html>Enter password</html>";
+    state.mime = "text/html";
+    await assert.rejects(service.get(link), { status: 403 });
+    await assert.rejects(service.get(link), { status: 403 });
 });
