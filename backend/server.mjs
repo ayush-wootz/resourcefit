@@ -113,10 +113,64 @@ export function createPreviewService(config, { fetchImpl = fetch, now = Date.now
             headers: { Authorization: `Bearer ${await accessToken()}` }
         });
         if (response.status === 401 && retry) { token = undefined; return graph(path, false); }
-        if ([403, 404, 410].includes(response.status)) fail(403, "This sharing link is unavailable or access has been removed.");
-        if (response.status === 429) fail(503, "Microsoft is busy. Please try again shortly.");
-        if (!response.ok) fail(502, "Microsoft could not resolve this sharing link. Contact the viewer administrator.");
+        if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            const rawCode = body?.error?.code;
+            const code = typeof rawCode === "string" && /^[a-zA-Z0-9_.-]{1,80}$/.test(rawCode) ? rawCode : "unknown";
+            const stage = path.includes("/permissions") ? "file permissions" : path.endsWith("/permission") ? "link permission" : "file lookup";
+            const denied = [403, 404, 410].includes(response.status);
+            const message = denied ? "Microsoft denied access to this link or file. Check its sharing settings and the backend app permissions."
+                : response.status === 429 ? "Microsoft is busy. Please try again shortly."
+                : "Microsoft could not resolve this sharing link.";
+            // Only a bounded error code and operation label leave the server. Never include
+            // upstream messages, sharing URLs, bearer tokens or signed download URLs.
+            const error = new PreviewError(denied ? 403 : response.status === 429 ? 503 : 502,
+                `${message} (${stage}: HTTP ${response.status}, ${code})`);
+            error.upstreamStatus = response.status;
+            throw error;
+        }
         return response.json();
+    }
+    function sameSharingLink(left, right) {
+        try {
+            const a = httpsUrl(left);
+            const b = httpsUrl(right);
+            if (a.origin !== b.origin || a.pathname !== b.pathname) return false;
+            // Modern sharing URLs carry the sharing token in their path. Ignore only
+            // known viewing/tracking parameters; retain all other query parameters.
+            if (/^\/:[a-z]:\/[gs]\//i.test(a.pathname)) {
+                for (const key of ["e", "nav", "download", "web", "csf"]) {
+                    a.searchParams.delete(key); b.searchParams.delete(key);
+                }
+            }
+            a.searchParams.sort(); b.searchParams.sort();
+            return a.href === b.href;
+        } catch { return false; }
+    }
+    async function linkPermission(share, key) {
+        try { return { permission: await graph(`/shares/${share}/permission`) }; }
+        catch (error) {
+            // Some SharePoint configurations reject this navigation endpoint. Use the
+            // documented driveItem permissions endpoint only for unsupported requests.
+            if (![400, 405, 501].includes(error.upstreamStatus)) throw error;
+        }
+        const item = await graph(`/shares/${share}/driveItem`);
+        if (!item.file || !item.id || !item.parentReference?.driveId) fail(422, "This link must point to a single file with a drive ID.");
+        const path = `/drives/${encodeURIComponent(item.parentReference.driveId)}/items/${encodeURIComponent(item.id)}/permissions`;
+        let next = path;
+        for (let page = 0; page < 10; page++) {
+            const permissions = await graph(next);
+            if (!Array.isArray(permissions.value)) fail(502, "Microsoft returned invalid file permissions.");
+            const permission = permissions.value.find(candidate => sameSharingLink(candidate?.link?.webUrl, key));
+            if (permission) return { permission, item };
+            if (!permissions["@odata.nextLink"]) break;
+            const url = httpsUrl(permissions["@odata.nextLink"]);
+            if (url.origin !== "https://graph.microsoft.com" || url.pathname !== `/v1.0${path}`) {
+                fail(502, "Microsoft returned an unexpected permissions page.");
+            }
+            next = path + url.search;
+        }
+        fail(403, "Microsoft did not return the permission for this exact sharing link. Use Share → Copy link with Anyone access and check the backend app permissions.");
     }
     function publicPermission(permission) {
         // Check the permission for THIS link, never an arbitrary public permission on the item.
@@ -174,9 +228,9 @@ export function createPreviewService(config, { fetchImpl = fetch, now = Date.now
     async function refresh(key, old) {
         const startedAt = now();
         const share = `u!${Buffer.from(key).toString("base64url")}`;
-        const permission = await graph(`/shares/${share}/permission`);
-        const expiresAt = publicPermission(permission);
-        const item = await graph(`/shares/${share}/driveItem`);
+        const resolved = await linkPermission(share, key);
+        const expiresAt = publicPermission(resolved.permission);
+        const item = resolved.item || await graph(`/shares/${share}/driveItem`);
         if (!item.file || !item.id || typeof item.name !== "string") fail(422, "This link must point to a single file.");
         if (!Number.isSafeInteger(item.size) || item.size < 1 || item.size > config.maxFileBytes) fail(413, "This file is empty or exceeds the preview size limit.");
         const version = item.eTag || item.cTag;

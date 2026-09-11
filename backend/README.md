@@ -38,6 +38,8 @@ Get the source URL from **Share → Copy link** with **Anyone** access. It must 
 
 On each cache miss/revalidation, the service checks the **permission associated with that exact sharing link**, requiring anonymous view/edit access and rejecting expired, password-marked, restricted, missing, or download-blocking permissions. It does not search for a different public link on the same file.
 
+If the sharing-link permission navigation returns HTTP 400, 405 or 501, the backend resolves the drive item and uses the [documented file permissions endpoint](https://learn.microsoft.com/en-us/graph/api/driveitem-list-permissions?view=graph-rest-1.0). It must find a permission whose sharing URL matches the submitted link. For modern token-in-path links, only known viewing/tracking parameters are ignored; another public link to the same file is never substituted. Access-denied, not-found, throttling and transient server errors do not trigger this fallback. Permission paging is bounded and restricted to the same Graph collection.
+
 Microsoft does not consistently report password metadata for SharePoint/OneDrive for Business. Dynamic mode therefore also requests the original sharing URL with `download=1`, without Microsoft application tokens or browser cookies. It only serves bytes obtained by that anonymous download; it never substitutes Graph's application-authorized signed download URL. Sign-in redirects, HTML viewer/password pages, unexpected download hosts, or mismatched file sizes fail closed. Some public SharePoint links may not provide a direct anonymous download via this method; they will show an error and an original-link fallback, rather than use private application access. Test your tenant's links after deployment.
 
 Dynamic mode refreshes the public download after the cache window, even for unchanged versions, to reverify actual public access. Repeated opens within the window still reuse cached bytes. CORS is not authentication: anyone holding a supported public sharing link on your configured domain can use the service.
@@ -74,6 +76,8 @@ docker run --rm -p 8080:8080 --env-file backend/.env resourcefit-sharepoint
 ```
 
 The health check confirms the process is running; it does **not** validate Microsoft consent or file access. Verify `/resolve?link=ENCODED_SHARING_URL` on the deployed host before enabling the viewer. A successful response includes the file name, type and a relative `/content` URL, never a Graph token or Microsoft download URL.
+
+If file resolution fails after authentication succeeds, the error includes the operation (`link permission`, `file lookup`, or `file permissions`), Microsoft's HTTP status and a bounded error code. These details help distinguish permissions, link and API failures. Raw Microsoft messages, credentials and request URLs are not exposed. A successful health check or token request alone does not mean the app has the required Graph application permissions/admin consent.
 
 Keep request query strings out of hosting/access logs because sharing links are bearer links. The application itself does not log URLs, secrets, or upstream error bodies. The download host must match `SHAREPOINT_HOST`; an unexpected Microsoft CDN/redirect host fails closed and must be reviewed before adapting the allowlist.
 

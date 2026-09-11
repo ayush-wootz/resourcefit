@@ -27,8 +27,12 @@ function fixture(overrides = {}) {
         if (url.includes("login.microsoftonline.com")) return json({ access_token: "graph-token", expires_in: 3600 });
         if (url.startsWith("https://graph.microsoft.com/")) {
             assert.equal(options.headers.Authorization, "Bearer graph-token");
-            if (state.status !== 200) return json({ privateError: "must not leak" }, state.status);
-            if (url.endsWith("/permission")) return json(state.permission);
+            if (state.status !== 200) return json({ error: { code: state.errorCode, message: "private upstream message must not leak" } }, state.status);
+            if (url.endsWith("/permission")) {
+                if (state.permissionStatus) return json({ error: { code: "notSupported" } }, state.permissionStatus);
+                return json(state.permission);
+            }
+            if (new URL(url).pathname.endsWith("/permissions")) return json(state.permissionPages?.[url] || { value: state.permissions || [] });
             return json({ id: "item", parentReference: { driveId: "drive" }, name: "RFQ Washer.xlsx", size: state.bytes.length,
                 eTag: state.version, file: { mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
                 "@microsoft.graph.downloadUrl": state.download });
@@ -265,4 +269,71 @@ test("dynamic cache is evicted if a link starts requiring a password", async () 
     state.mime = "text/html";
     await assert.rejects(service.get(link), { status: 403 });
     await assert.rejects(service.get(link), { status: 403 });
+});
+
+test("unsupported permission navigation falls back to the matching file permission", async () => {
+    for (const permissionStatus of [400, 405, 501]) {
+        const { dependencies, state } = fixture({ permissionStatus, bytes: "PKworkbook", permissions: [
+            { link: { scope: "anonymous", type: "view", webUrl: otherLink } },
+            { link: { scope: "anonymous", type: "view", webUrl: link.split("?")[0] } }
+        ] });
+        const service = createPreviewService({ ...config, allowDynamic: true }, dependencies);
+        assert.equal((await service.get(link)).bytes.toString(), "PKworkbook");
+        assert.ok(state.requests.some(request => request.url === "https://graph.microsoft.com/v1.0/drives/drive/items/item/permissions"));
+        assert.ok(!state.requests.some(request => request.url.includes("secret=signed")));
+    }
+});
+
+test("fallback never substitutes another public link or ignores the matched link's restrictions", async () => {
+    for (const permissions of [
+        [{ link: { scope: "anonymous", type: "view", webUrl: otherLink } }],
+        [{ link: { scope: "anonymous", type: "view", webUrl: link.replace(host, "evil.example") } }],
+        [{ link: { scope: "anonymous", type: "view" } }],
+        [{ link: { scope: "organization", type: "view", webUrl: link } }, { link: { scope: "anonymous", type: "view", webUrl: otherLink } }],
+        [{ link: { scope: "anonymous", type: "view", webUrl: link }, hasPassword: true }],
+        [{ link: { scope: "anonymous", type: "view", webUrl: link }, expirationDateTime: "2020-01-01T00:00:00Z" }]
+    ]) {
+        const { service, state } = fixture({ permissionStatus: 400, permissions });
+        await assert.rejects(service.get(link), { status: 403 });
+        assert.ok(state.requests.every(request => !request.url.startsWith(`https://${host}/`)));
+    }
+});
+
+test("permission pagination stays on the exact Graph collection", async () => {
+    const base = "https://graph.microsoft.com/v1.0/drives/drive/items/item/permissions";
+    const second = base + "?$skiptoken=next";
+    const { service } = fixture({ permissionStatus: 400, permissionPages: {
+        [base]: { value: [], "@odata.nextLink": second },
+        [second]: { value: [{ link: { scope: "anonymous", type: "view", webUrl: link } }] }
+    } });
+    assert.equal((await service.get(link)).bytes.toString(), "workbook-v1");
+    for (const next of ["https://evil.example/permissions", "https://graph.microsoft.com/v1.0/users"]) {
+        const bad = fixture({ permissionStatus: 400, permissionPages: { [base]: { value: [], "@odata.nextLink": next } } });
+        await assert.rejects(bad.service.get(link), { status: 502 });
+        assert.ok(!bad.state.requests.some(request => request.url === next));
+    }
+});
+
+test("denied or failed permission calls do not trigger the fallback", async () => {
+    for (const permissionStatus of [401, 403, 404, 429, 500]) {
+        const { service, state } = fixture({ permissionStatus });
+        await assert.rejects(service.get(link));
+        assert.ok(!state.requests.some(request => request.url.endsWith("/driveItem") || request.url.endsWith("/permissions")));
+    }
+});
+
+test("Graph errors expose only a safe operation, HTTP status and bounded code", async () => {
+    const result = fixture({ status: 500, errorCode: "invalidRequest" });
+    await assert.rejects(result.service.get(link), error => {
+        assert.match(error.message, /link permission: HTTP 500, invalidRequest/);
+        assert.ok(!error.message.includes("private upstream message"));
+        assert.ok(!error.message.includes(link));
+        return true;
+    });
+    const unsafe = fixture({ status: 500, errorCode: "https://secret.example/token" });
+    await assert.rejects(unsafe.service.get(link), error => {
+        assert.match(error.message, /HTTP 500, unknown/);
+        assert.ok(!error.message.includes("secret.example"));
+        return true;
+    });
 });
