@@ -20,7 +20,7 @@ Complex Excel styling is not reproduced exactly. SheetJS Community Edition focus
 
 The [backend setup guide](backend/README.md) explains how to deploy the Node service and connect it using `viewer-config.js`. Existing direct-file routes are unchanged; the additional SharePoint route activates only when `sharePointApiBase` is configured.
 
-Supported SharePoint previews: Excel worksheet data, PDFs with page navigation, and raster images. Other types offer the original link. The backend requires registered, password-free **Anyone** sharing links; it is not a private-file authentication gateway. It uses server-side Microsoft authentication and a bounded five-minute cache, so visitors do not sign into Microsoft in the embed.
+Supported SharePoint previews: Excel worksheet data, PDFs with page navigation, and raster images. Other types offer the original link. Set `ALLOW_DYNAMIC_PUBLIC_LINKS=true` for changing Glide URLs from your configured SharePoint domain; no per-file list is required. The backend checks the link's **Anyone** permission and verifies an anonymous file download. Links requiring sign-in or a password are rejected. It uses server-side Microsoft authentication and a bounded five-minute cache, so visitors do not sign into Microsoft in the embed. The original registered-link mode remains available.
 
 Run the automated backend and routing checks with Node 22 or later:
 

@@ -12,7 +12,7 @@ Create a client secret under **Certificates & secrets**, then put its **Value** 
 
 Reference: [Microsoft Graph sharing-link API permissions](https://learn.microsoft.com/en-us/graph/api/shares-get?view=graph-rest-1.0).
 
-## 2. Register the public files
+## 2. Enable dynamic public links
 
 Set these server environment variables (see `.env.example`):
 
@@ -22,25 +22,35 @@ Set these server environment variables (see `.env.example`):
 | `MS_CLIENT_ID` | Backend app application/client GUID |
 | `MS_CLIENT_SECRET` | Secret value, stored only on the backend host |
 | `SHAREPOINT_HOST` | `netorgft12597064-my.sharepoint.com` |
-| `PUBLIC_SHARE_LINKS` | JSON array of exact, approved, password-free Anyone sharing links |
+| `ALLOW_DYNAMIC_PUBLIC_LINKS` | `true` to accept changing public links from the configured domain |
+| `PUBLIC_SHARE_LINKS` | Optional in dynamic mode; omit it or use `[]` |
 | `ALLOWED_ORIGINS` | `https://ayush-wootz.github.io` |
 | `CACHE_TTL_SECONDS` | `300` by default; may be reduced to 1–300 |
 | `MAX_FILE_MB` | `20` by default |
 | `MAX_CACHE_MB` | `128` by default, at least `MAX_FILE_MB` |
+| `MAX_CACHE_ENTRIES` | `200` by default; limits the number of cached files as well as bytes |
 | `MAX_CONCURRENT_FETCHES` | `4` by default |
 | `PORT` | Hosting provider's port, default `8080` |
 
-Get the source URL from **Share → Copy link** with **Anyone** access. Confirm it opens without a password in a signed-out browser before registering it. Use the same complete URL in the server registration and Glide, including its query parameters. A browser's `Doc.aspx` address is not a substitute for an Anyone sharing link.
+For changing Glide URLs, set `ALLOW_DYNAMIC_PUBLIC_LINKS=true` in Render's Environment settings. Remove `PUBLIC_SHARE_LINKS` or set it to `[]`. Keep the other Microsoft and domain settings. You do not need to update Render when a new file is added: Glide sends each file's current URL in the viewer's `link` parameter.
 
-Example environment value; replace both placeholder URLs with real sharing links:
+Get the source URL from **Share → Copy link** with **Anyone** access. It must open without a password in a signed-out browser. Pass the complete URL, including query parameters. A browser's `Doc.aspx` address is not a substitute for an Anyone sharing link.
+
+On each cache miss/revalidation, the service checks the **permission associated with that exact sharing link**, requiring anonymous view/edit access and rejecting expired, password-marked, restricted, missing, or download-blocking permissions. It does not search for a different public link on the same file.
+
+Microsoft does not consistently report password metadata for SharePoint/OneDrive for Business. Dynamic mode therefore also requests the original sharing URL with `download=1`, without Microsoft application tokens or browser cookies. It only serves bytes obtained by that anonymous download; it never substitutes Graph's application-authorized signed download URL. Sign-in redirects, HTML viewer/password pages, unexpected download hosts, or mismatched file sizes fail closed. Some public SharePoint links may not provide a direct anonymous download via this method; they will show an error and an original-link fallback, rather than use private application access. Test your tenant's links after deployment.
+
+Dynamic mode refreshes the public download after the cache window, even for unchanged versions, to reverify actual public access. Repeated opens within the window still reuse cached bytes. CORS is not authentication: anyone holding a supported public sharing link on your configured domain can use the service.
+
+### Optional registered-link mode
+
+The previous behavior remains available by leaving `ALLOW_DYNAMIC_PUBLIC_LINKS` unset or setting it to `false`, and setting `PUBLIC_SHARE_LINKS` to a non-empty JSON array of exact, approved sharing URLs. Example (replace placeholders):
 
 ```json
 ["https://YOUR-TENANT-my.sharepoint.com/:x:/g/personal/USER/TOKEN","https://YOUR-TENANT-my.sharepoint.com/:i:/g/personal/USER/TOKEN"]
 ```
 
-New files must be added to this list and the service restarted/redeployed. An empty list fails startup. This intentional registration prevents the public service from becoming a gateway to arbitrary company files using its application credentials. CORS is not authentication: anyone with a registered public link can call this API.
-
-On each cache miss/revalidation, the service checks the **permission associated with that exact sharing link**, requiring anonymous view/edit access and rejecting expired, password-marked, restricted, missing, or download-blocking permissions. It does not search for a different public link on the same file. Microsoft does not consistently report password metadata for SharePoint/OneDrive for Business, so the administrator must also verify registered links are password-free. If the tenant does not expose the link permission to this app, the request fails closed; there is no fallback to private app access.
+In registered-link mode, each new file must be added to the list and the service restarted/redeployed. The administrator must verify each registered link is password-free. This mode uses Graph's signed file download URL after registration and permission validation; it can reuse unchanged bytes on revalidation. An empty list fails startup unless dynamic mode is explicitly enabled. In either mode, if the tenant does not expose the link permission to this app, the request fails closed.
 
 References: [sharedDriveItem permission relationship](https://learn.microsoft.com/en-us/graph/api/resources/shareddriveitem?view=graph-rest-1.0), [permission properties](https://learn.microsoft.com/en-us/graph/api/resources/permission?view=graph-rest-1.0).
 
@@ -93,9 +103,9 @@ The frontend origin in CORS is `https://ayush-wootz.github.io`, including when t
 
 - First open downloads the entire file into the backend's bounded memory cache, then sends bytes to the visitor. `/resolve` warms the cache so the following `/content` request normally does not download again.
 - Repeat opens within five minutes reuse bytes without calling Microsoft. Simultaneous requests for the same link share one fetch.
-- The first request after expiry checks the link permission and file metadata. An unchanged item/version reuses bytes; a changed or missing version tag causes a fresh download.
+- The first request after expiry checks the link permission and file metadata. Dynamic mode downloads anonymously again to reverify access. In registered-link mode, an unchanged item/version reuses bytes; a changed or missing version tag causes a fresh download.
 - Removed access or Microsoft errors after expiry evict the entry and return an error. Stale content is not served on failure. A revoked link can remain usable for the existing cache window, at most five minutes. Already downloaded copies cannot be revoked.
-- Least-recently-used files are evicted when the byte budget is reached. The cache is per process and resets on restart. Multiple instances each fetch/cache independently; use shared storage only if scale justifies it.
+- Least-recently-used files are evicted when the byte budget or entry limit is reached. The cache is per process and resets on restart. Multiple instances each fetch/cache independently; use shared storage only if scale justifies it.
 - Browser responses use `Cache-Control: no-store` to avoid a second long-lived authorization cache. Visitors still transfer the file bytes from your backend on each open, so bandwidth grows with file size and opens; caching primarily saves SharePoint downloads and latency. For example, 100 opens of a 5 MB file transfer roughly 500 MB to browsers even if SharePoint was fetched only once.
 - Each upstream request has a 30-second timeout; concurrency and file size are bounded. PDF range requests are supported, but the backend still downloads a whole source file on a miss.
 
@@ -109,4 +119,4 @@ From the repository root:
 node --test backend/test/*.test.mjs
 ```
 
-Tests use mocked Microsoft responses and real local HTTP requests. They cover cache reuse/revalidation, file changes, revocation, expiry, registration, download host validation, memory/concurrency limits, byte ranges, CORS, server-only credentials and existing viewer routing. A real tenant test is still required after credentials and a host are configured: open a registered public image, PDF and workbook directly and inside Glide, then revoke a test link and confirm access fails after the configured cache window.
+Tests use mocked Microsoft responses and real local HTTP requests. They cover cache reuse/revalidation, file changes, revocation, expiry, registration, dynamic links, anonymous download verification, download host validation, memory/concurrency limits, byte ranges, CORS, server-only credentials and existing viewer routing. A real tenant test is still required after credentials and a host are configured: open a public image, PDF and workbook directly and inside Glide, then revoke a test link and confirm access fails after the configured cache window. In dynamic mode, also verify a new link works without an environment update, and a password-protected link is refused even if Graph reports anonymous scope.

@@ -17,14 +17,20 @@ function httpsUrl(value) {
 }
 
 export function configuration(env = process.env) {
-    const required = ["MS_TENANT_ID", "MS_CLIENT_ID", "MS_CLIENT_SECRET", "SHAREPOINT_HOST", "PUBLIC_SHARE_LINKS", "ALLOWED_ORIGINS"];
+    const required = ["MS_TENANT_ID", "MS_CLIENT_ID", "MS_CLIENT_SECRET", "SHAREPOINT_HOST", "ALLOWED_ORIGINS"];
     for (const name of required) if (!env[name]) throw new Error(`Set ${name} before starting the backend.`);
     const guid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
     if (!guid.test(env.MS_TENANT_ID) || !guid.test(env.MS_CLIENT_ID)) throw new Error("Microsoft tenant and client IDs must be GUIDs.");
     const host = env.SHAREPOINT_HOST.toLowerCase();
     if (!/^[a-z0-9-]+\.sharepoint\.com$/.test(host)) throw new Error("Set SHAREPOINT_HOST to your exact SharePoint hostname.");
-    const links = JSON.parse(env.PUBLIC_SHARE_LINKS);
-    if (!Array.isArray(links) || !links.length) throw new Error("Register at least one password-free public sharing link in PUBLIC_SHARE_LINKS.");
+    if (env.ALLOW_DYNAMIC_PUBLIC_LINKS && !["true", "false"].includes(env.ALLOW_DYNAMIC_PUBLIC_LINKS)) {
+        throw new Error("ALLOW_DYNAMIC_PUBLIC_LINKS must be true or false.");
+    }
+    const allowDynamic = env.ALLOW_DYNAMIC_PUBLIC_LINKS === "true";
+    const links = JSON.parse(env.PUBLIC_SHARE_LINKS?.trim() || "[]");
+    if (!Array.isArray(links) || (!links.length && !allowDynamic)) {
+        throw new Error("Set ALLOW_DYNAMIC_PUBLIC_LINKS=true or register public links in PUBLIC_SHARE_LINKS.");
+    }
     const publicLinks = new Set(links.map(value => {
         const url = httpsUrl(value);
         if (url.hostname !== host) throw new Error("Every registered link must use SHAREPOINT_HOST.");
@@ -45,7 +51,8 @@ export function configuration(env = process.env) {
     if (maxCacheBytes < maxFileBytes) throw new Error("MAX_CACHE_MB must be at least MAX_FILE_MB.");
     return {
         tenant: env.MS_TENANT_ID, client: env.MS_CLIENT_ID, secret: env.MS_CLIENT_SECRET,
-        host, publicLinks, origins, maxFileBytes, maxCacheBytes,
+        host, publicLinks, allowDynamic, origins, maxFileBytes, maxCacheBytes,
+        maxCacheEntries: positive("MAX_CACHE_ENTRIES", 200, 2000),
         ttl: positive("CACHE_TTL_SECONDS", 300, 300) * 1000,
         maxConcurrent: positive("MAX_CONCURRENT_FETCHES", 4, 16),
         port: positive("PORT", 8080, 65535)
@@ -74,7 +81,9 @@ export function createPreviewService(config, { fetchImpl = fetch, now = Date.now
     }
     function remember(key, entry) {
         drop(key);
-        while (cacheBytes + entry.bytes.length > config.maxCacheBytes && cache.size) drop(cache.keys().next().value);
+        while (cache.size && (cacheBytes + entry.bytes.length > config.maxCacheBytes || cache.size >= (config.maxCacheEntries ?? 200))) {
+            drop(cache.keys().next().value);
+        }
         cache.set(key, entry);
         cacheBytes += entry.bytes.length;
     }
@@ -112,19 +121,23 @@ export function createPreviewService(config, { fetchImpl = fetch, now = Date.now
     function publicPermission(permission) {
         // Check the permission for THIS link, never an arbitrary public permission on the item.
         if (permission?.link?.scope !== "anonymous" || !["view", "edit"].includes(permission.link.type) || permission.hasPassword === true) {
-            fail(403, "Only registered, password-free Anyone sharing links can be previewed.");
+            fail(403, "Only password-free Anyone sharing links can be previewed.");
         }
         const expiration = permission.expirationDateTime;
         const expiresAt = !expiration || expiration.startsWith("0001-01-01") ? Infinity : Date.parse(expiration);
         if (!(expiresAt > now())) fail(403, "This sharing link has expired.");
         return expiresAt;
     }
-    async function download(value) {
+    async function download(value, anonymous = false) {
         for (let redirects = 0; redirects <= 3; redirects++) {
             const url = httpsUrl(value);
             // No arbitrary proxy, and no bearer token is sent to the download endpoint.
-            if (url.hostname !== config.host) fail(502, "Microsoft returned a download host that is not configured.");
-            const response = await request(url.href);
+            if (url.hostname !== config.host) {
+                fail(anonymous ? 403 : 502, anonymous
+                    ? "Public download could not be verified. Use an Anyone sharing link that opens without sign-in or a password."
+                    : "Microsoft returned a download host that is not configured.");
+            }
+            const response = await request(url.href, { credentials: "omit" });
             if ([301, 302, 303, 307, 308].includes(response.status)) {
                 await response.body?.cancel();
                 const location = response.headers.get("location");
@@ -132,7 +145,12 @@ export function createPreviewService(config, { fetchImpl = fetch, now = Date.now
                 value = new URL(location, url).href;
                 continue;
             }
-            if (!response.ok) fail(502, "The SharePoint file could not be downloaded.");
+            if (!response.ok) fail(anonymous && [401, 403, 404].includes(response.status) ? 403 : 502, "The SharePoint file could not be downloaded.");
+            const mime = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+            if (anonymous && (!mime || /html|json|xml/.test(mime) && !/officedocument/.test(mime))) {
+                await response.body?.cancel();
+                fail(403, "SharePoint returned a viewing or sign-in page instead of a public file download.");
+            }
             if (Number(response.headers.get("content-length")) > config.maxFileBytes) {
                 await response.body?.cancel();
                 fail(413, "This file exceeds the preview size limit.");
@@ -145,7 +163,11 @@ export function createPreviewService(config, { fetchImpl = fetch, now = Date.now
                 chunks.push(Buffer.from(chunk));
             }
             if (!length) fail(422, "The file is empty.");
-            return Buffer.concat(chunks, length);
+            const bytes = Buffer.concat(chunks, length);
+            if (anonymous && /^\s*(?:<!doctype\s+html|<html|<head|<body|<script)/i.test(bytes.subarray(0, 1024).toString("utf8"))) {
+                fail(403, "Public file access could not be verified.");
+            }
+            return bytes;
         }
         fail(502, "Too many SharePoint download redirects.");
     }
@@ -160,7 +182,25 @@ export function createPreviewService(config, { fetchImpl = fetch, now = Date.now
         const version = item.eTag || item.cTag;
         const identity = `${item.parentReference?.driveId || ""}/${item.id}`;
         const unchanged = old && version && old.version === version && old.identity === identity;
-        const bytes = unchanged ? old.bytes : await download(item["@microsoft.graph.downloadUrl"]);
+        let bytes;
+        if (config.allowDynamic) {
+            // Graph may omit SharePoint password metadata. Prove public access by fetching
+            // the ORIGINAL sharing link without app tokens, cookies or Graph's signed URL.
+            // This check runs even when the version is unchanged at cache revalidation.
+            const publicDownload = new URL(key);
+            publicDownload.searchParams.set("download", "1");
+            bytes = await download(publicDownload.href, true);
+            if (bytes.length !== item.size) fail(502, "The public download did not match the file metadata. Please try again.");
+            const extension = item.name.split(".").pop().toLowerCase();
+            const zip = bytes[0] === 0x50 && bytes[1] === 0x4b;
+            const ole = bytes.subarray(0, 8).equals(Buffer.from("d0cf11e0a1b11ae1", "hex"));
+            if ((["xlsx", "xlsm", "xlsb"].includes(extension) && !zip && !ole)
+                || (extension === "pdf" && !bytes.subarray(0, 1024).includes(Buffer.from("%PDF-")))) {
+                fail(403, "SharePoint did not return the expected public file. Open the original link to check access.");
+            }
+        } else {
+            bytes = unchanged ? old.bytes : await download(item["@microsoft.graph.downloadUrl"]);
+        }
         const validUntil = Math.min(startedAt + config.ttl, expiresAt);
         if (validUntil <= now()) fail(403, "The sharing link expired while loading. Please try again.");
         const mime = typeof item.file.mimeType === "string" ? item.file.mimeType.toLowerCase() : "application/octet-stream";
@@ -171,7 +211,8 @@ export function createPreviewService(config, { fetchImpl = fetch, now = Date.now
     async function get(value) {
         const url = httpsUrl(value);
         const key = url.href;
-        if (url.hostname !== config.host || !config.publicLinks.has(key)) fail(403, "This public sharing link has not been registered for preview.");
+        if (url.hostname !== config.host) fail(403, "This link is outside the configured SharePoint domain.");
+        if (!config.allowDynamic && !config.publicLinks.has(key)) fail(403, "This public sharing link has not been registered for preview.");
         const old = cache.get(key);
         if (old && old.validUntil > now()) { cache.delete(key); cache.set(key, old); return old; }
         if (pending.has(key)) return pending.get(key);
