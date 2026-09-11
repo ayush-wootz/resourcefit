@@ -23,6 +23,8 @@
         elements.imageWrapper.style.display = "none";
         elements.pdfViewer.style.display = "none";
         elements.workbookContainer.style.display = "none";
+        const sharePointPdf = document.getElementById("sharePointPdf");
+        if (sharePointPdf) sharePointPdf.style.display = "none";
     }
 
     function escapeHtml(value) {
@@ -78,9 +80,10 @@
         }
     }
 
-    function showImage(url) {
+    function showImage(url, onError) {
         hideAll();
         elements.imageWrapper.style.display = "block";
+        elements.directImage.onerror = onError || null;
         elements.directImage.src = url;
     }
 
@@ -112,12 +115,12 @@
         elements.sheetViewport.scrollTo({ top: 0, left: 0 });
     }
 
-    function showWorkbook(workbook) {
+    function showWorkbook(workbook, title) {
         if (!workbook.SheetNames.length) throw new Error("The workbook does not contain any worksheets.");
 
         hideAll();
         elements.workbookContainer.style.display = "flex";
-        elements.workbookTitle.textContent = fileNameFromUrl(sourceLink);
+        elements.workbookTitle.textContent = title || fileNameFromUrl(sourceLink);
         elements.sheetTabs.replaceChildren();
 
         workbook.SheetNames.forEach((sheetName, index) => {
@@ -133,7 +136,7 @@
         });
     }
 
-    async function loadWorkbook(url) {
+    async function loadWorkbook(url, title) {
         showStatus("Loading workbook", "Downloading and preparing the read-only preview…", true);
         if (!window.XLSX) throw new Error("The Excel preview library could not be loaded.");
 
@@ -148,7 +151,7 @@
         const data = await response.arrayBuffer();
         if (!data.byteLength) throw new Error("The downloaded file is empty.");
         const workbook = window.XLSX.read(data, { type: "array", cellDates: true });
-        showWorkbook(workbook);
+        showWorkbook(workbook, title);
     }
 
     async function initialize() {
@@ -164,6 +167,12 @@
         }
 
         try {
+            const apiBase = window.RESOURCEFIT_CONFIG?.sharePointApiBase;
+            if (apiBase && new URL(sourceLink).hostname.endsWith(".sharepoint.com")) {
+                const { previewSharePoint } = await import("./sharepoint-preview.mjs?v=1");
+                await previewSharePoint({ sourceLink, apiBase, showStatus, showImage, loadWorkbook, hideAll });
+                return;
+            }
             switch (detectContentType(sourceLink)) {
                 case "workbook": await loadWorkbook(sourceLink); break;
                 case "image": showImage(sourceLink); break;
