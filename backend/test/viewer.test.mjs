@@ -123,3 +123,17 @@ test("zoom controls appear only for content this page renders itself", async () 
         assert.equal(elements.get("zoomControls").style.display, "none", link);
     }
 });
+
+test("3D formats route to the model viewer rather than a frame or download", async () => {
+    // The module import needs a browser, so assert the routing decision: model
+    // extensions must leave the iframe and image routes untouched.
+    for (const ext of ["stl", "stp", "step", "igs", "iges", "brep", "obj", "ply", "3mf", "glb", "gltf"]) {
+        for (const url of [`https://files.example/bracket.${ext}`, `https://files.example/download?file=part.${ext.toUpperCase()}`]) {
+            const { elements } = await render(url);
+            assert.equal(elements.get("webContainer").style.display, "none", url);
+            assert.equal(elements.get("pdfViewer").style.display, "none", url);
+            assert.equal(elements.get("imageWrapper").style.display, "none", url);
+            assert.equal(elements.get("workbookContainer").style.display, "none", url);
+        }
+    }
+});

@@ -17,6 +17,10 @@
         driveOpen: document.getElementById("driveOpen"),
         driveFrame: document.getElementById("driveFrame"),
         driveTabs: document.getElementById("driveTabs"),
+        modelContainer: document.getElementById("modelContainer"),
+        modelTitle: document.getElementById("modelTitle"),
+        modelMeta: document.getElementById("modelMeta"),
+        modelViewport: document.getElementById("modelViewport"),
         viewerControls: document.getElementById("viewerControls"),
         zoomControls: document.getElementById("zoomControls"),
         zoomIn: document.getElementById("zoomIn"),
@@ -85,6 +89,7 @@
         elements.pdfViewer.style.display = "none";
         elements.workbookContainer.style.display = "none";
         elements.driveContainer.style.display = "none";
+        elements.modelContainer.style.display = "none";
         const sharePointPdf = document.getElementById("sharePointPdf");
         if (sharePointPdf) sharePointPdf.style.display = "none";
     }
@@ -115,7 +120,7 @@
         try {
             const parsed = new URL(url);
             const pathExtension = parsed.pathname.split(".").pop().toLowerCase();
-            if (/^(xlsx|xls|xlsm|xlsb|pdf|doc|docx|ppt|pptx|jpg|jpeg|png|gif|bmp|webp|svg)$/.test(pathExtension)) return pathExtension;
+            if (/^(xlsx|xls|xlsm|xlsb|pdf|doc|docx|ppt|pptx|jpg|jpeg|png|gif|bmp|webp|svg|stl|stp|step|igs|iges|brep|obj|ply|3mf|glb|gltf)$/.test(pathExtension)) return pathExtension;
             const fileName = parsed.searchParams.get("file") || parsed.searchParams.get("filename") || "";
             return fileName.split(".").pop().toLowerCase();
         } catch (_) {
@@ -127,6 +132,7 @@
         const extension = getExtension(url);
         if (["xlsx", "xls", "xlsm", "xlsb"].includes(extension)) return "workbook";
         if (["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg"].includes(extension)) return "image";
+        if (["stl", "stp", "step", "igs", "iges", "brep", "obj", "ply", "3mf", "glb", "gltf"].includes(extension)) return "model";
         // Preserve the original document iframe route for non-Excel documents.
         if (["pdf", "doc", "docx", "ppt", "pptx"].includes(extension)) return "pdf";
         return "webpage";
@@ -314,6 +320,28 @@
         });
     }
 
+    async function loadModel(url) {
+        showStatus("Loading 3D model", "Downloading and preparing the preview…", true);
+        const extension = getExtension(url);
+        const { previewModel } = await import("./model-preview.mjs?v=1");
+        await previewModel({
+            url,
+            extension,
+            viewport: elements.modelViewport,
+            onStage() {
+                hideAll();
+                // OrbitControls owns the gestures inside the canvas.
+                setZoomTarget(null);
+                elements.modelContainer.style.display = "flex";
+                elements.modelTitle.textContent = fileNameFromUrl(url);
+                elements.modelMeta.textContent = "";
+            },
+            onReady({ triangles }) {
+                elements.modelMeta.textContent = `${triangles.toLocaleString()} triangles`;
+            }
+        });
+    }
+
     async function initialize() {
         initializeControls();
         const targets = driveTargets(driveParam);
@@ -343,6 +371,7 @@
             switch (detectContentType(sourceLink)) {
                 case "workbook": await loadWorkbook(sourceLink); break;
                 case "image": showImage(sourceLink); break;
+                case "model": await loadModel(sourceLink); break;
                 case "pdf": showPdf(sourceLink); break;
                 default: showWebpage(sourceLink);
             }
