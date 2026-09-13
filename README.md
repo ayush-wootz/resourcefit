@@ -1,6 +1,6 @@
 # ResourceFit
 
-ResourceFit previews images, PDFs, web pages, Excel workbooks, and Google Drive files from a `link` query parameter.
+ResourceFit previews images, PDFs, web pages, Excel workbooks, 3D models, and Google Drive files from a `link` query parameter.
 
 ## Google Drive previews
 
@@ -34,6 +34,44 @@ URL) falls through to the existing routes rather than rendering half of it.
 Drive workbooks use Google's viewer rather than the SheetJS worksheet tabs, because
 `drive.google.com` download URLs send no CORS headers. Serving Drive bytes through the backend
 to reuse the SheetJS renderer would be a separate change.
+
+## 3D model previews
+
+Mesh and CAD files preview in a WebGL viewer:
+
+| Format | Handled by |
+| --- | --- |
+| `stl`, `obj`, `ply`, `3mf`, `glb`, `gltf` | three.js loaders |
+| `stp`, `step`, `igs`, `iges`, `brep` | OpenCascade compiled to wasm, which meshes the B-rep |
+
+```text
+https://ayush-wootz.github.io/resourcefit/?link=ENCODED_STEP_URL
+```
+
+Drag to orbit, pinch or scroll to zoom, two-finger drag to pan. The camera frames the
+model against whichever field of view is narrower, so portrait embeds do not crop it,
+and the header reports the triangle count.
+
+The CAD kernel is about 7 MB of wasm and is fetched only when a STEP, IGES, or BREP
+file is opened; mesh formats never pay for it. Like the Excel path, the bytes are
+downloaded in the browser, so the host must permit cross-origin downloads — a Google
+Drive id cannot be used here, since Drive sends no CORS headers and has no 3D preview
+of its own. Set `occtBase` in `viewer-config.js` to serve the kernel from somewhere
+other than the public CDN.
+
+## Zoom and fullscreen
+
+A floating control bar offers fullscreen and, where the page renders the content
+itself, zoom. Fullscreen uses the Fullscreen API on the whole viewer, so it also
+covers the Drive and SharePoint frames. Hosts that embed this page without
+`allow="fullscreen"` reject that call, and the button then expands the viewer
+within the embed instead; the adjacent button opens the viewer in a new tab.
+
+Pinch, drag, double-tap, and ctrl+wheel zoom apply to Excel worksheets and images.
+They do not apply to the Google Drive, SharePoint, PDF, or web frames: touch events
+inside a cross-origin iframe never reach this page, so those viewers own their own
+gestures and cannot be extended from here. The zoom buttons hide on those routes
+rather than appearing inert.
 
 ## Read-only Excel previews
 

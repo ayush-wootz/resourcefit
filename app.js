@@ -16,7 +16,18 @@
         driveTitle: document.getElementById("driveTitle"),
         driveOpen: document.getElementById("driveOpen"),
         driveFrame: document.getElementById("driveFrame"),
-        driveTabs: document.getElementById("driveTabs")
+        driveTabs: document.getElementById("driveTabs"),
+        modelContainer: document.getElementById("modelContainer"),
+        modelTitle: document.getElementById("modelTitle"),
+        modelMeta: document.getElementById("modelMeta"),
+        modelViewport: document.getElementById("modelViewport"),
+        viewerControls: document.getElementById("viewerControls"),
+        zoomControls: document.getElementById("zoomControls"),
+        zoomIn: document.getElementById("zoomIn"),
+        zoomOut: document.getElementById("zoomOut"),
+        zoomReset: document.getElementById("zoomReset"),
+        fullscreenToggle: document.getElementById("fullscreenToggle"),
+        openTab: document.getElementById("openTab")
     };
 
     const query = new URLSearchParams(window.location.search);
@@ -26,6 +37,51 @@
     // Google Drive previews accept bare file ids, so the "open original" link is resolved separately.
     let originalLink = sourceLink;
 
+    // --- Zoom and fullscreen controls ------------------------------------------
+    let zoomController = null;
+
+    function setZoomTarget(viewport, content) {
+        zoomController = null;
+        if (elements.zoomControls) elements.zoomControls.style.display = viewport ? "flex" : "none";
+        if (!viewport || !window.RESOURCEFIT_ZOOM) return;
+        zoomController = window.RESOURCEFIT_ZOOM.attach(viewport, content, (scale) => {
+            if (elements.zoomReset) elements.zoomReset.textContent = `${Math.round(scale * 100)}%`;
+        });
+    }
+
+    function fullscreenElement() {
+        return document.fullscreenElement || document.webkitFullscreenElement || null;
+    }
+
+    async function toggleFullscreen() {
+        const root = document.getElementById("container");
+        if (fullscreenElement()) {
+            const exit = document.exitFullscreen || document.webkitExitFullscreen;
+            if (exit) await exit.call(document);
+            return;
+        }
+        const request = root.requestFullscreen || root.webkitRequestFullscreen;
+        try {
+            if (!request) throw new Error("unsupported");
+            await request.call(root);
+        } catch (_) {
+            // Glide and other hosts can embed this page without allow="fullscreen",
+            // in which case the API rejects and only the in-embed expansion is possible.
+            document.body.classList.toggle("maximized");
+        }
+        if (zoomController) zoomController.refresh();
+    }
+
+    function initializeControls() {
+        if (!elements.fullscreenToggle) return;
+        elements.fullscreenToggle.addEventListener("click", toggleFullscreen);
+        elements.zoomIn.addEventListener("click", () => zoomController && zoomController.zoomBy(1.35));
+        elements.zoomOut.addEventListener("click", () => zoomController && zoomController.zoomBy(1 / 1.35));
+        elements.zoomReset.addEventListener("click", () => zoomController && zoomController.reset());
+        if (elements.openTab) elements.openTab.href = window.location.href;
+        window.addEventListener("resize", () => zoomController && zoomController.refresh());
+    }
+
     function hideAll() {
         elements.status.style.display = "none";
         elements.webContainer.style.display = "none";
@@ -33,6 +89,7 @@
         elements.pdfViewer.style.display = "none";
         elements.workbookContainer.style.display = "none";
         elements.driveContainer.style.display = "none";
+        elements.modelContainer.style.display = "none";
         const sharePointPdf = document.getElementById("sharePointPdf");
         if (sharePointPdf) sharePointPdf.style.display = "none";
     }
@@ -48,6 +105,7 @@
 
     function showStatus(title, message, loading) {
         hideAll();
+        setZoomTarget(null);
         elements.status.style.display = "flex";
         elements.status.innerHTML = `
             <div class="status-card">
@@ -62,7 +120,7 @@
         try {
             const parsed = new URL(url);
             const pathExtension = parsed.pathname.split(".").pop().toLowerCase();
-            if (/^(xlsx|xls|xlsm|xlsb|pdf|doc|docx|ppt|pptx|jpg|jpeg|png|gif|bmp|webp|svg)$/.test(pathExtension)) return pathExtension;
+            if (/^(xlsx|xls|xlsm|xlsb|pdf|doc|docx|ppt|pptx|jpg|jpeg|png|gif|bmp|webp|svg|stl|stp|step|igs|iges|brep|obj|ply|3mf|glb|gltf)$/.test(pathExtension)) return pathExtension;
             const fileName = parsed.searchParams.get("file") || parsed.searchParams.get("filename") || "";
             return fileName.split(".").pop().toLowerCase();
         } catch (_) {
@@ -74,6 +132,7 @@
         const extension = getExtension(url);
         if (["xlsx", "xls", "xlsm", "xlsb"].includes(extension)) return "workbook";
         if (["jpg", "jpeg", "png", "gif", "bmp", "webp", "svg"].includes(extension)) return "image";
+        if (["stl", "stp", "step", "igs", "iges", "brep", "obj", "ply", "3mf", "glb", "gltf"].includes(extension)) return "model";
         // Preserve the original document iframe route for non-Excel documents.
         if (["pdf", "doc", "docx", "ppt", "pptx"].includes(extension)) return "pdf";
         return "webpage";
@@ -95,16 +154,21 @@
         elements.imageWrapper.style.display = "block";
         elements.directImage.onerror = onError || null;
         elements.directImage.src = url;
+        setZoomTarget(elements.imageWrapper, elements.directImage);
+        // Bounds depend on the decoded size, so re-clamp once the image lands.
+        elements.directImage.onload = () => zoomController && zoomController.refresh();
     }
 
     function showPdf(url) {
         hideAll();
+        setZoomTarget(null);
         elements.pdfViewer.style.display = "block";
         elements.pdfViewer.src = url;
     }
 
     function showWebpage(url) {
         hideAll();
+        setZoomTarget(null);
         elements.webContainer.style.display = "block";
         elements.embeddedLink.src = url;
     }
@@ -118,11 +182,14 @@
         });
 
         const worksheet = workbook.Sheets[sheetName];
-        elements.sheetViewport.innerHTML = window.XLSX.utils.sheet_to_html(worksheet, {
+        const surface = document.createElement("div");
+        surface.id = "sheetSurface";
+        surface.innerHTML = window.XLSX.utils.sheet_to_html(worksheet, {
             id: "sheetTable",
             editable: false
         });
-        elements.sheetViewport.scrollTo({ top: 0, left: 0 });
+        elements.sheetViewport.replaceChildren(surface);
+        setZoomTarget(elements.sheetViewport, surface);
     }
 
     function showWorkbook(workbook, title) {
@@ -237,6 +304,7 @@
         }
 
         hideAll();
+        setZoomTarget(null);
         elements.driveContainer.style.display = "flex";
         elements.driveTabs.replaceChildren();
         targets.forEach((target, index) => {
@@ -252,7 +320,30 @@
         });
     }
 
+    async function loadModel(url) {
+        showStatus("Loading 3D model", "Downloading and preparing the preview…", true);
+        const extension = getExtension(url);
+        const { previewModel } = await import("./model-preview.mjs?v=1");
+        await previewModel({
+            url,
+            extension,
+            viewport: elements.modelViewport,
+            onStage() {
+                hideAll();
+                // OrbitControls owns the gestures inside the canvas.
+                setZoomTarget(null);
+                elements.modelContainer.style.display = "flex";
+                elements.modelTitle.textContent = fileNameFromUrl(url);
+                elements.modelMeta.textContent = "";
+            },
+            onReady({ triangles }) {
+                elements.modelMeta.textContent = `${triangles.toLocaleString()} triangles`;
+            }
+        });
+    }
+
     async function initialize() {
+        initializeControls();
         const targets = driveTargets(driveParam);
         if (targets.length) {
             showDrive(targets);
@@ -280,6 +371,7 @@
             switch (detectContentType(sourceLink)) {
                 case "workbook": await loadWorkbook(sourceLink); break;
                 case "image": showImage(sourceLink); break;
+                case "model": await loadModel(sourceLink); break;
                 case "pdf": showPdf(sourceLink); break;
                 default: showWebpage(sourceLink);
             }

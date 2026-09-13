@@ -12,7 +12,9 @@ async function render(link, apiBase = "", extraQuery = {}) {
     const document = { getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); }, createElement: element };
     const requests = [];
     const context = { document, URL, URLSearchParams,
-        window: { location: { search: `?${new URLSearchParams({ link, ...extraQuery })}` }, RESOURCEFIT_CONFIG: { sharePointApiBase: apiBase },
+        window: { addEventListener() {},
+            location: { href: "https://viewer.example/", search: `?${new URLSearchParams({ link, ...extraQuery })}` },
+            RESOURCEFIT_CONFIG: { sharePointApiBase: apiBase },
             XLSX: { read: () => ({ SheetNames: ["Sheet1"], Sheets: { Sheet1: {} } }), utils: { sheet_to_html: () => "<table></table>" } } },
         fetch: async url => { requests.push(url); return { ok: true, arrayBuffer: async () => new ArrayBuffer(4) }; }
     };
@@ -105,4 +107,33 @@ test("non-Drive links keep their existing routes", async () => {
 
     const mixed = await render("1H8e8ldZDcvKo5RRi89b49vaDYJeE0Nb0,https://files.example/report.pdf");
     assert.equal(mixed.elements.get("driveContainer").style.display, "none");
+});
+
+test("zoom controls appear only for content this page renders itself", async () => {
+    const id = "1H8e8ldZDcvKo5RRi89b49vaDYJeE0Nb0";
+    const workbook = await render("https://files.example/quote.xlsx");
+    assert.equal(workbook.elements.get("zoomControls").style.display, "flex");
+
+    const image = await render("https://files.example/drawing.png");
+    assert.equal(image.elements.get("zoomControls").style.display, "flex", "images are zoomable once loaded");
+
+    // Cross-origin frames swallow their own touch events, so zoom must stay hidden there.
+    for (const link of [id, "https://files.example/spec.pdf", "https://example.com/page.html"]) {
+        const { elements } = await render(link);
+        assert.equal(elements.get("zoomControls").style.display, "none", link);
+    }
+});
+
+test("3D formats route to the model viewer rather than a frame or download", async () => {
+    // The module import needs a browser, so assert the routing decision: model
+    // extensions must leave the iframe and image routes untouched.
+    for (const ext of ["stl", "stp", "step", "igs", "iges", "brep", "obj", "ply", "3mf", "glb", "gltf"]) {
+        for (const url of [`https://files.example/bracket.${ext}`, `https://files.example/download?file=part.${ext.toUpperCase()}`]) {
+            const { elements } = await render(url);
+            assert.equal(elements.get("webContainer").style.display, "none", url);
+            assert.equal(elements.get("pdfViewer").style.display, "none", url);
+            assert.equal(elements.get("imageWrapper").style.display, "none", url);
+            assert.equal(elements.get("workbookContainer").style.display, "none", url);
+        }
+    }
 });
